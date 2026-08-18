@@ -1,0 +1,274 @@
+version: "3.9"
+
+# Public Portainer deployment bootstrap for MCP-video-gen.
+# All values are generic. Put deployment-specific paths, tunnel tokens,
+# OAuth values, domains, and private network details in Portainer variables.
+
+services:
+  video-mcp:
+    image: node:22-bookworm-slim
+    container_name: video-mcp
+    restart: unless-stopped
+    init: true
+
+    environment:
+      VIDEO_MCP_REPO: "${VIDEO_MCP_REPO:-the-code-learner/MCP-video-gen}"
+      VIDEO_MCP_VERSION: "${VIDEO_MCP_VERSION:-latest}"
+      VIDEO_MCP_CHECK_UPDATES_ON_START: "${VIDEO_MCP_CHECK_UPDATES_ON_START:-true}"
+      VIDEO_MCP_FORCE_REFRESH: "${VIDEO_MCP_FORCE_REFRESH:-false}"
+
+      COMFYUI_SCHEME: "${COMFYUI_SCHEME:-http}"
+      COMFYUI_HOST: "${COMFYUI_HOST:-host.docker.internal}"
+      COMFYUI_PORT: "${COMFYUI_PORT:-8188}"
+      COMFYUI_BASE_PATH: "${COMFYUI_BASE_PATH:-}"
+
+      MCP_LISTEN_PORT: "8000"
+      MCP_RUN_UID: "${MCP_RUN_UID:-65534}"
+      MCP_RUN_GID: "${MCP_RUN_GID:-65534}"
+      MCP_MAX_REQUEST_MB: "${MCP_MAX_REQUEST_MB:-64}"
+      MAX_INLINE_OUTPUT_MB: "${MAX_INLINE_OUTPUT_MB:-8}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-32}"
+      SCAN_MAX_FILES: "${SCAN_MAX_FILES:-5000}"
+
+      FFMPEG_TIMEOUT_SEC: "${FFMPEG_TIMEOUT_SEC:-1800}"
+      FFMPEG_MAX_LOG_CHARS: "${FFMPEG_MAX_LOG_CHARS:-12000}"
+      FFMPEG_DEFAULT_CRF: "${FFMPEG_DEFAULT_CRF:-18}"
+      FFMPEG_DEFAULT_PRESET: "${FFMPEG_DEFAULT_PRESET:-medium}"
+
+      HYPERFRAMES_NPM_SPEC: "${HYPERFRAMES_NPM_SPEC:-hyperframes@0.7.111}"
+      HYPERFRAMES_TIMEOUT_SEC: "${HYPERFRAMES_TIMEOUT_SEC:-3600}"
+      HYPERFRAMES_MAX_LOG_CHARS: "${HYPERFRAMES_MAX_LOG_CHARS:-20000}"
+      HYPERFRAMES_PROJECTS_ROOT: "/data/hyperframes/projects"
+      HYPERFRAMES_SKIP_SKILLS: "1"
+      HOME: "/data/hyperframes-home"
+      CONTAINER: "true"
+      npm_config_update_notifier: "false"
+      npm_config_fund: "false"
+      npm_config_audit: "false"
+
+      CF_ACCESS_VERIFY: "${CF_ACCESS_VERIFY:-false}"
+      CF_ACCESS_TEAM_DOMAIN: "${CF_ACCESS_TEAM_DOMAIN:-}"
+      CF_ACCESS_AUD: "${CF_ACCESS_AUD:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+
+      VIDEO_MCP_APP_DIR: "/opt/video-mcp/current"
+      VIDEO_MCP_VENV_DIR: "/opt/venv"
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "127.0.0.1:${MCP_HOST_PORT:-8000}:8000"
+
+    volumes:
+      - type: bind
+        source: "${COMFYUI_MODELS_PATH}"
+        target: /mnt/comfy/models
+        read_only: true
+      - type: bind
+        source: "${COMFYUI_CUSTOM_NODES_PATH}"
+        target: /mnt/comfy/custom_nodes
+        read_only: true
+      - type: volume
+        source: video_mcp_code
+        target: /opt/video-mcp
+      - type: volume
+        source: video_mcp_venv
+        target: /opt/venv
+      - type: volume
+        source: video_mcp_data
+        target: /data
+
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          /opt/venv/bin/python -c
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+
+        REPO="${VIDEO_MCP_REPO:-the-code-learner/MCP-video-gen}"
+        VERSION_POLICY="${VIDEO_MCP_VERSION:-latest}"
+        CHECK_UPDATES="${VIDEO_MCP_CHECK_UPDATES_ON_START:-true}"
+        FORCE_REFRESH="${VIDEO_MCP_FORCE_REFRESH:-false}"
+        ROOT=/opt/video-mcp
+        RELEASES="$ROOT/releases"
+        CURRENT="$ROOT/current"
+
+        mkdir -p "$RELEASES"
+
+        is_true() {
+          case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+            1|true|yes|on) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        current_valid() {
+          [ -L "$CURRENT" ] && [ -f "$CURRENT/.mcp-source-ready" ] && [ -f "$CURRENT/scripts/start.sh" ]
+        }
+
+        install_bootstrap_deps() {
+          if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends python3 ca-certificates curl
+            rm -rf /var/lib/apt/lists/*
+          fi
+        }
+
+        resolve_latest() {
+          python3 - "$REPO" <<'PY'
+        import json, re, sys, urllib.request
+        repo = sys.argv[1]
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/releases?per_page=100",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "mcp-video-gen-bootstrap"},
+        )
+        with urllib.request.urlopen(req, timeout=20) as response:
+            releases = json.load(response)
+        stable = []
+        for release in releases:
+            tag = str(release.get("tag_name", ""))
+            if release.get("draft") or release.get("prerelease"):
+                continue
+            match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+            if match:
+                stable.append((tuple(map(int, match.groups())), tag))
+        if not stable:
+            raise SystemExit("No stable vX.Y.Z GitHub Release found")
+        print(max(stable)[1])
+        PY
+        }
+
+        safe_extract() {
+          python3 - "$1" "$2" <<'PY'
+        import os, pathlib, shutil, sys, tarfile
+        archive, destination = sys.argv[1], pathlib.Path(sys.argv[2])
+        destination.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive, "r:gz") as tar:
+            members = tar.getmembers()
+            roots = set()
+            for member in members:
+                path = pathlib.PurePosixPath(member.name)
+                if path.is_absolute() or ".." in path.parts:
+                    raise SystemExit(f"Unsafe archive path: {member.name}")
+                if member.issym() or member.islnk():
+                    raise SystemExit(f"Links are not allowed in source archives: {member.name}")
+                if path.parts:
+                    roots.add(path.parts[0])
+            if len(roots) != 1:
+                raise SystemExit("Expected exactly one archive root directory")
+            root = next(iter(roots))
+            for member in members:
+                path = pathlib.PurePosixPath(member.name)
+                relative = pathlib.PurePosixPath(*path.parts[1:])
+                if not relative.parts:
+                    continue
+                target = destination.joinpath(*relative.parts)
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                elif member.isfile():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    source = tar.extractfile(member)
+                    if source is None:
+                        raise SystemExit(f"Unable to read {member.name}")
+                    with source, open(target, "wb") as output:
+                        shutil.copyfileobj(source, output)
+                    os.chmod(target, member.mode & 0o777)
+        PY
+        }
+
+        install_bootstrap_deps
+
+        REF="$VERSION_POLICY"
+        if [ "$VERSION_POLICY" = "latest" ]; then
+          if ! is_true "$CHECK_UPDATES" && current_valid; then
+            echo "Using cached last-known-good release: $(cat "$CURRENT/.mcp-source-ready")"
+            exec /bin/sh "$CURRENT/scripts/start.sh"
+          fi
+
+          if ! REF="$(resolve_latest)"; then
+            if current_valid; then
+              echo "Release lookup failed; starting last-known-good $(cat "$CURRENT/.mcp-source-ready")" >&2
+              exec /bin/sh "$CURRENT/scripts/start.sh"
+            fi
+            echo "Unable to resolve latest and no valid cached release exists" >&2
+            exit 1
+          fi
+        fi
+
+        SAFE_REF="$(printf '%s' "$REF" | tr -c 'A-Za-z0-9._-' '_')"
+        TARGET="$RELEASES/$SAFE_REF"
+        READY="$TARGET/.mcp-source-ready"
+
+        if ! is_true "$FORCE_REFRESH" && [ -f "$READY" ] && [ "$(cat "$READY")" = "$REF" ]; then
+          echo "Using cached source $REF"
+        else
+          STAGING="$RELEASES/.staging-$SAFE_REF-$$"
+          ARCHIVE="$RELEASES/.download-$SAFE_REF-$$.tar.gz"
+          rm -rf "$STAGING" "$ARCHIVE"
+          mkdir -p "$STAGING"
+
+          echo "Downloading $REPO@$REF"
+          if ! curl -fL --retry 3 --connect-timeout 15 --max-time 180 \
+            "https://codeload.github.com/$REPO/tar.gz/$REF" -o "$ARCHIVE"; then
+            rm -rf "$STAGING" "$ARCHIVE"
+            if current_valid; then
+              echo "Download failed; starting last-known-good $(cat "$CURRENT/.mcp-source-ready")" >&2
+              exec /bin/sh "$CURRENT/scripts/start.sh"
+            fi
+            exit 1
+          fi
+
+          if ! safe_extract "$ARCHIVE" "$STAGING"; then
+            rm -rf "$STAGING" "$ARCHIVE"
+            if current_valid; then
+              echo "Archive validation failed; starting last-known-good $(cat "$CURRENT/.mcp-source-ready")" >&2
+              exec /bin/sh "$CURRENT/scripts/start.sh"
+            fi
+            exit 1
+          fi
+          rm -f "$ARCHIVE"
+
+          [ -f "$STAGING/VERSION" ] || { echo "VERSION missing from source" >&2; rm -rf "$STAGING"; exit 1; }
+          [ -f "$STAGING/requirements.txt" ] || { echo "requirements.txt missing from source" >&2; rm -rf "$STAGING"; exit 1; }
+          [ -f "$STAGING/scripts/start.sh" ] || { echo "scripts/start.sh missing" >&2; rm -rf "$STAGING"; exit 1; }
+
+          printf '%s\n' "$REF" > "$STAGING/.mcp-source-ready"
+          rm -rf "$TARGET"
+          mv "$STAGING" "$TARGET"
+        fi
+
+        NEW_LINK="$ROOT/.current-$$"
+        ln -s "$TARGET" "$NEW_LINK"
+        mv -Tf "$NEW_LINK" "$CURRENT"
+
+        exec /bin/sh "$CURRENT/scripts/start.sh"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: video-mcp-cloudflared
+    restart: unless-stopped
+    depends_on:
+      video-mcp:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run --token "${CLOUDFLARED_TUNNEL_TOKEN}"
+
+volumes:
+  video_mcp_code:
+  video_mcp_venv:
+  video_mcp_data:
