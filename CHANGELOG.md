@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.4.0] - 2026-08-18
+
+### Added
+
+- Optional authenticated host-side Blender bridge integration. Blender remains disabled by default and is never required for MCP startup.
+- `external_backends_status` and `blender_info` availability/introspection tools.
+- `blender_execute_python` for general `bpy` automation with MCP-cache inputs and declared outputs copied back into the cache.
+- Convenience Blender tools for still rendering, H.264 animation rendering, and GLB export from cached `.blend` files.
+- Host bridge reference implementation in `scripts/blender_bridge.py` plus a hardened systemd unit example for running it as a dedicated low-privilege OS account.
+- Generic MCP client-to-server file import tools for text, one-shot base64 binary files, and bounded chunked binary uploads with optional SHA-256 validation.
+- Generic server-to-client chunked base64 reads plus cache metadata inspection, complementing the existing authenticated `/files/{file_id}` download route.
+
+### Changed
+
+- Network-dependent ComfyUI tools are wrapped as an optional external backend: when ComfyUI is absent/unreachable they return a structured `available=false` result for the model instead of producing an MCP tool error.
+- `inventory_summary` now reports external backend availability separately from local/internal capabilities.
+- ComfyUI filesystem bind mounts use generic empty-directory fallbacks so the Portainer Stack can start even before ComfyUI is installed or its paths are configured.
+- Files entering through the generic transfer layer become normal MCP cache entries and can flow to/from ComfyUI, Blender, FFmpeg, HyperFrames, subtitles, timelines, and audio tools through the same `file_id` contract.
+
 ## [2.3.1] - 2026-08-18
 
 ### Added

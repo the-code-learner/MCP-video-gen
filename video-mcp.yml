@@ -23,6 +23,13 @@ services:
       COMFYUI_PORT: "${COMFYUI_PORT:-8188}"
       COMFYUI_BASE_PATH: "${COMFYUI_BASE_PATH:-}"
 
+      # Optional host-side Blender bridge. Keep disabled unless the authenticated
+      # bridge service is installed on the VM.
+      BLENDER_ENABLED: "${BLENDER_ENABLED:-false}"
+      BLENDER_BRIDGE_URL: "${BLENDER_BRIDGE_URL:-http://host.docker.internal:9876}"
+      BLENDER_BRIDGE_TOKEN: "${BLENDER_BRIDGE_TOKEN:-}"
+      BLENDER_BRIDGE_TIMEOUT_SEC: "${BLENDER_BRIDGE_TIMEOUT_SEC:-7200}"
+
       MCP_LISTEN_PORT: "8000"
       MCP_RUN_UID: "${MCP_RUN_UID:-65534}"
       MCP_RUN_GID: "${MCP_RUN_GID:-65534}"
@@ -92,14 +99,11 @@ services:
       - "127.0.0.1:${MCP_HOST_PORT:-8000}:8000"
 
     volumes:
-      - type: bind
-        source: "${COMFYUI_MODELS_PATH}"
-        target: /mnt/comfy/models
-        read_only: true
-      - type: bind
-        source: "${COMFYUI_CUSTOM_NODES_PATH}"
-        target: /mnt/comfy/custom_nodes
-        read_only: true
+      # These short-syntax bind mounts intentionally have generic empty-directory
+      # fallbacks. Docker/Compose creates the fallback directories when absent,
+      # so the MCP can start even on a VM where ComfyUI is not installed yet.
+      - "${COMFYUI_MODELS_PATH:-/var/lib/mcp-video-gen/empty/comfy-models}:/mnt/comfy/models:ro"
+      - "${COMFYUI_CUSTOM_NODES_PATH:-/var/lib/mcp-video-gen/empty/comfy-custom-nodes}:/mnt/comfy/custom_nodes:ro"
       - type: volume
         source: video_mcp_code
         target: /opt/video-mcp
