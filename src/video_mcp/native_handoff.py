@@ -22,7 +22,22 @@ def _resource_uri(file_id: str) -> str:
     return f"{MEDIA_RESOURCE_PREFIX}{file_id}"
 
 
-def _preferred_uri(file_id: str, public_base_url: str) -> str:
+def _http_uri(file_id: str, public_base_url: str) -> str:
+    base = public_base_url.rstrip("/")
+    if not base.startswith(("https://", "http://")):
+        raise ValueError("PUBLIC_BASE_URL is not configured with an HTTP(S) origin")
+    return f"{base}/files/{file_id}"
+
+
+def _preferred_uri(file_id: str, public_base_url: str, transport: str) -> str:
+    mode = transport.lower().strip()
+    if mode not in {"auto", "http", "mcp"}:
+        raise ValueError("transport must be one of: auto, http, mcp")
+    if mode == "mcp":
+        return _resource_uri(file_id)
+    if mode == "http":
+        return _http_uri(file_id, public_base_url)
+
     base = public_base_url.rstrip("/")
     if base.startswith(("https://", "http://")):
         return f"{base}/files/{file_id}"
@@ -38,8 +53,9 @@ def register_native_file_handoff(
     """Register native-reference file handoff for artifacts in the shared cache.
 
     The preferred output path is a ResourceLink. When PUBLIC_BASE_URL is
-    configured, the link points at the streaming /files/{file_id} HTTP route.
-    Otherwise it points at the MCP media:// cache resource.
+    configured, auto mode points at the streaming /files/{file_id} HTTP route.
+    Otherwise it points at the MCP media:// cache resource. Callers can force
+    either transport when they need an explicit fallback.
 
     Binary resources/read remains a compatibility path: the MCP protocol
     represents binary resource contents as a base64 blob. It must not be used
@@ -48,18 +64,22 @@ def register_native_file_handoff(
     """
 
     @mcp.tool()
-    async def get_cached_file_resource(file_id: str) -> ResourceLink:
-        """Return the preferred native resource/file reference for a cached artifact.
+    async def get_cached_file_resource(
+        file_id: str,
+        transport: str = "auto",
+    ) -> ResourceLink:
+        """Return a native resource/file reference for a cached artifact.
 
-        Use this instead of inline/chunked base64 whenever the client supports
-        ResourceLink or direct HTTP file retrieval. The canonical artifact ID
-        remains file_id and the bytes are not placed in the tool result.
+        transport="auto" prefers HTTP(S) streaming when PUBLIC_BASE_URL is
+        configured and otherwise uses the MCP media:// resource. Use "mcp" to
+        force the protocol resource fallback or "http" to require the direct
+        streaming URL. The file bytes are never placed in this tool result.
         """
         path = cached(file_id)
         name = _filename(path)
         return ResourceLink(
             type="resource_link",
-            uri=_preferred_uri(file_id, public_base_url),
+            uri=_preferred_uri(file_id, public_base_url, transport),
             name=name,
             title=name,
             mime_type=_mime_type(path),
