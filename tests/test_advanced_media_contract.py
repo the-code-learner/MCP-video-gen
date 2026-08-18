@@ -38,6 +38,12 @@ def test_ai_assets_are_checksum_pinned_and_excluded_tools_stay_out():
     prepare = (ROOT / "scripts" / "prepare_media_tools.sh").read_text()
     assert "SILERO_VAD_MODEL_SHA256" in prepare
     assert "WHISPER_MODEL_SHA256" in prepare
-    all_source = "\n".join(path.read_text(errors="replace") for path in ROOT.rglob("*.py"))
-    assert "Real-ESRGAN" not in all_source
-    assert "RIFE-ncnn" not in all_source
+
+    # Check the runtime implementation only. The regression test itself names
+    # excluded tools, so scanning the whole repository would self-match.
+    runtime_root = ROOT / "src" / "video_mcp"
+    runtime_source = "\n".join(
+        path.read_text(errors="replace") for path in runtime_root.rglob("*.py")
+    )
+    assert "Real-ESRGAN" not in runtime_source
+    assert "RIFE-ncnn" not in runtime_source
