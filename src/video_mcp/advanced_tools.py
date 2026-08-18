@@ -34,10 +34,11 @@ def register_advanced_tools(
 
     @mcp.tool()
     async def advanced_capabilities() -> dict[str, Any]:
-        """Report media/audio capabilities actually implemented by this MCP.
+        """Report advanced media/audio capabilities implemented locally by this MCP.
 
-        A false value is authoritative: clients must not invent an integration
-        merely because a third-party service could theoretically provide it.
+        This does not enumerate integrations exposed dynamically by installed
+        ComfyUI custom nodes. Use ComfyUI node introspection for those capabilities
+        and their configuration requirements.
         """
         return {
             "ffmpeg": bool(shutil.which("ffmpeg")),
@@ -47,7 +48,6 @@ def register_advanced_tools(
             "whisper_cpp": Path(os.getenv("WHISPER_CPP_BINARY", str(data_root / "tooling/whisper.cpp/current/build/bin/whisper-cli"))).is_file(),
             "whisper_model": Path(os.getenv("WHISPER_MODEL_PATH", str(data_root / "models/whisper/ggml-tiny-q5_1.bin"))).is_file(),
             "piper_enabled": os.getenv("PIPER_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
-            "elevenlabs_speech_to_speech": False,
         }
 
     advanced_ffmpeg.register(mcp, c)

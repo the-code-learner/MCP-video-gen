@@ -73,7 +73,8 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
         Use this to verify that the client is talking to the expected deployed
         release after an update. It intentionally returns no tokens, secrets,
         credentials, Cloudflare audience values, signed URLs, or private file
-        contents.
+        contents. Capabilities supplied dynamically by ComfyUI custom nodes are
+        intentionally not declared present or absent here; inspect ComfyUI nodes.
         """
         tool_names = _registered_tool_names(mcp)
         remote_allowlist = os.getenv("REMOTE_IMPORT_ALLOWED_HOSTS", "").strip()
@@ -92,7 +93,9 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             "server_instructions_configured": bool(instructions.strip()),
             "blender_bridge_tools": "blender_info" in tool_names,
             "hyperframes": "hyperframes_info" in tool_names,
-            "elevenlabs_speech_to_speech": False,
+            "comfyui_node_introspection": all(
+                name in tool_names for name in ("list_loaded_nodes", "get_node_definition")
+            ),
         }
 
         return {
@@ -140,6 +143,7 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "Use file_transfer_guide for file movement. Never pass external URLs, "
                 "ResourceLinks, /files paths, another MCP's references, or MCP file_ids "
                 "directly to standard ComfyUI LoadImage; cache/import first, then use "
-                "comfy_upload_cached_image(file_id)."
+                "comfy_upload_cached_image(file_id). For third-party capabilities exposed "
+                "by ComfyUI custom nodes, inspect the loaded node and its definition/configuration."
             ),
         }

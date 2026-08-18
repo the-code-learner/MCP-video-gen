@@ -11,7 +11,11 @@ def test_server_instructions_cover_file_routing_and_capability_grounding():
     assert "comfy_upload_cached_image(file_id)" in SERVER_INSTRUCTIONS
     assert "workflow_load_image_value" in SERVER_INSTRUCTIONS
     assert "import_remote_file(uri)" in SERVER_INSTRUCTIONS
-    assert "ElevenLabs speech-to-speech is NOT implemented" in SERVER_INSTRUCTIONS
+    assert "ComfyUI custom nodes can expose third-party services" in SERVER_INSTRUCTIONS
+    assert "API keys or credentials" in SERVER_INSTRUCTIONS
+    assert "list_loaded_nodes" in SERVER_INSTRUCTIONS
+    assert "get_node_definition" in SERVER_INSTRUCTIONS
+    assert "ElevenLabs speech-to-speech is NOT implemented" not in SERVER_INSTRUCTIONS
     assert "Automatic cache deletion is disabled" in SERVER_INSTRUCTIONS
     assert "cache_pin" in SERVER_INSTRUCTIONS
     assert "file_transfer_guide()" in SERVER_INSTRUCTIONS
