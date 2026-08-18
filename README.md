@@ -11,9 +11,10 @@ The project is designed for **Portainer-only deployments**: the public repositor
 - Inspect compatible custom-node source/documentation files.
 - Submit arbitrary valid ComfyUI API workflow JSON and inspect queue/history/output state.
 - Optionally control host-installed Blender through an authenticated bridge for `bpy` automation, still rendering, animation rendering, and GLB export.
-- Import files from the MCP client/AI into the persistent cache using text, one-shot base64, or chunked binary transfer.
-- Return cached files to the client/AI through authenticated HTTP download, inline base64, or bounded chunked base64 reads.
-- Upload inputs, cache outputs, and retrieve generated image, video, audio, 3D, scene, subtitle, and other files through one `file_id` contract.
+- Import files from the MCP client/AI into the persistent cache using text, one-shot base64, or chunked compatibility transfer.
+- Return cached files as native MCP `ResourceLink` references and authenticated HTTP(S) streams, with MCP resource/base64 paths retained as compatibility fallbacks.
+- Upload inputs, cache outputs, and retrieve generated image, video, audio, 3D, scene, subtitle, and other files through one canonical `file_id` contract.
+- Transfer cached images directly to ComfyUI as multipart binary data without routing file bytes through the AI/client context or converting them to base64.
 - Create and render local HyperFrames projects using HTML/CSS/media.
 - Probe, transcode, concatenate, overlay, mux audio, crop, reverse, loop, speed-ramp, and extract frames with FFmpeg.
 - Detect silence, black/frozen sections, loudness, interlacing, crop regions, keyframes, and objective SSIM/PSNR differences.
@@ -37,7 +38,7 @@ ComfyUI and Blender are **external optional backends**. If either backend is dis
 ```text
 MCP client / AI
    |
-   |<------ generic MCP file transfer ------>
+   |<---- native file references / streaming ---->
    v
 MCP Video Gen + persistent file_id cache
    |
@@ -139,6 +140,8 @@ CF_ACCESS_AUD=<Access application audience tag>
 PUBLIC_BASE_URL=https://your-public-host.example
 ```
 
+`PUBLIC_BASE_URL` also allows `get_cached_file_resource` to return the authenticated HTTP(S) `/files/{file_id}` stream as its preferred file reference. Without it, the tool returns the MCP-native `media://cache/{file_id}` resource URI instead.
+
 No real domain, audience, tunnel token, bridge token, internal IP, or credential belongs in this public repository.
 
 ## External backend availability
@@ -163,49 +166,75 @@ This is deliberately different from an MCP server failure: the model learns that
 
 Every generated/imported artifact is normalized into the MCP cache and identified by `file_id`. This is the interchange layer between the AI client, ComfyUI, Blender, FFmpeg, HyperFrames, subtitles, timelines, and audio utilities.
 
+The project rule is simple: **do not route binary media through inline/chunked base64 when a native file/resource reference or streaming transfer is available.** Never resize, recompress, transcode, or otherwise alter an artifact solely to make it fit through a tool result.
+
+### MCP -> client / AI — preferred path
+
+Use:
+
+```text
+get_cached_file_resource(file_id)
+```
+
+It returns an MCP `ResourceLink` with URI, filename, MIME type and size, without embedding the binary payload in the tool result.
+
+When `PUBLIC_BASE_URL` is set, the URI points to:
+
+```text
+<PUBLIC_BASE_URL>/files/<file_id>
+```
+
+The `/files/{file_id}` route supports `GET`, `HEAD` and HTTP byte ranges through Starlette `FileResponse`, making it the preferred transfer path for large video, audio, images, `.blend`, GLB and other binary outputs.
+
+Without a public HTTP(S) base URL, the ResourceLink falls back to:
+
+```text
+media://cache/<file_id>
+```
+
+The server exposes the matching `media://cache/{file_id}` MCP resource template. Binary `resources/read` is a compatibility path rather than the preferred large-file path because binary MCP resource contents are base64 blobs on the wire.
+
+Metadata remains available through:
+
+```text
+get_cached_file_info
+```
+
+Compatibility/debug fallbacks remain:
+
+```text
+read_cached_file_chunk_base64
+get_output_inline_base64
+```
+
 ### Client / AI -> MCP
 
-For small files:
+Current generic compatibility imports are:
 
 ```text
 cache_text_file
 cache_file_base64
-```
-
-For larger binary files:
-
-```text
 file_upload_begin
 file_upload_chunk
 file_upload_finish
 file_upload_abort
 ```
 
-Chunked uploads can specify expected byte length and SHA-256 before promotion into the persistent cache.
+Chunked uploads can specify expected byte length and SHA-256 before promotion into the persistent cache. The chunking avoids one giant request, but binary chunks are still base64; a client-native file/resource handoff should be preferred whenever the connected client exposes one the server can actually retrieve.
 
-### MCP -> client / AI
+### Cache -> ComfyUI
 
-Metadata:
-
-```text
-get_cached_file_info
-```
-
-Small existing compatibility path:
+For an image already in the cache, use:
 
 ```text
-get_output_inline_base64
+comfy_upload_cached_image(file_id)
 ```
 
-Bounded generic reads:
+The adapter uploads the original cached bytes directly to ComfyUI `/upload/image` as multipart/form-data. It does not base64-encode the asset and does not send the payload through the model context.
 
-```text
-read_cached_file_chunk_base64
-```
+This means an AI can author a Blender Python script as text, place arbitrary referenced assets into the cache, send those `file_id` values to Blender, receive `.blend`/`.glb`/renders back as new `file_id` values, and then feed image outputs into ComfyUI or the local post-processing stack without a binary client round trip.
 
-Every normal cache metadata object also contains `/files/{file_id}` and, when `PUBLIC_BASE_URL` is configured, a complete authenticated download URL.
-
-This means an AI can author a Blender Python script as text, place arbitrary referenced assets into the cache, send those `file_id` values to Blender, receive `.blend`/`.glb`/renders back as new `file_id` values, and then feed those files into ComfyUI or the local post-processing stack.
+See **`docs/FILE_HANDOFF.md`** for the complete transfer hierarchy, resource semantics, authentication notes, and large-file rules.
 
 ## Advanced local media utilities
 
@@ -266,7 +295,7 @@ VIDEO_MCP_FORCE_REFRESH=false
 You can also pin a release:
 
 ```text
-VIDEO_MCP_VERSION=v2.4.0
+VIDEO_MCP_VERSION=v2.5.0
 ```
 
 or a commit SHA:

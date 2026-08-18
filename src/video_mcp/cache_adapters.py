@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64
+import mimetypes
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,12 +19,11 @@ def register_cache_adapters(
         overwrite: bool = False,
         subfolder: str = "",
     ) -> dict[str, Any]:
-        """Upload a cached image directly to ComfyUI without routing bytes through the AI/client.
+        """Upload a cached image directly to ComfyUI without base64 or a client round trip.
 
-        This is useful for Blender renders and other MCP-generated images that
-        should become ComfyUI input assets. If ComfyUI is absent/unreachable,
-        the tool returns a structured availability result rather than an MCP
-        tool error.
+        The cached bytes are sent as normal multipart/form-data directly from the
+        MCP server to ComfyUI. If ComfyUI is absent/unreachable, the tool returns
+        a structured availability result rather than an MCP tool error.
         """
         try:
             await server_module.comfy("GET", "object_info", timeout=5)
@@ -39,12 +38,20 @@ def register_cache_adapters(
             }
 
         source = cached(file_id)
+        filename = source.name.split("__", 1)[-1]
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        form = {
+            "overwrite": "true" if overwrite else "false",
+            "subfolder": subfolder,
+        }
+        files = {"image": (filename, source.read_bytes(), content_type)}
+
         try:
-            result = await server_module.upload_image_base64(
-                source.name.split("__", 1)[-1],
-                base64.b64encode(source.read_bytes()).decode("ascii"),
-                overwrite,
-                subfolder,
+            result = await server_module.comfy(
+                "POST",
+                "upload/image",
+                data=form,
+                files=files,
             )
         except Exception as exc:
             return {
