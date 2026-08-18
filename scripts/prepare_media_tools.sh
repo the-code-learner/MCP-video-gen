@@ -25,17 +25,20 @@ download_verified() {
     rm -f "$destination"
   fi
   tmpfile="${destination}.part.$$"
-  trap 'rm -f "$tmpfile"' INT TERM HUP EXIT
-  curl -fL --retry 5 --retry-delay 3 --connect-timeout 20 -o "$tmpfile" "$url"
+  rm -f "$tmpfile"
+  if ! curl -fL --retry 5 --retry-delay 3 --connect-timeout 20 -o "$tmpfile" "$url"; then
+    rm -f "$tmpfile"
+    return 1
+  fi
   actual="$(sha256sum "$tmpfile" | awk '{print $1}')"
   if [ "$actual" != "$sha256" ]; then
     echo "SHA-256 mismatch for $url" >&2
     echo "expected: $sha256" >&2
     echo "actual:   $actual" >&2
-    exit 1
+    rm -f "$tmpfile"
+    return 1
   fi
   mv "$tmpfile" "$destination"
-  trap - INT TERM HUP EXIT
 }
 
 mkdir -p \
