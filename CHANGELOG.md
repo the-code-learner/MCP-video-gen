@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.7.1] - 2026-08-18
+
+### Fixed
+
+- Removed the hard-coded negative ElevenLabs speech-to-speech guidance introduced in v2.7.0. Third-party capabilities can be exposed dynamically by installed ComfyUI custom nodes even when MCP Video Gen has no dedicated tool for that provider.
+- `advanced_capabilities` and `build_status` no longer report `elevenlabs_speech_to_speech=false`, which could incorrectly override capabilities available through ComfyUI.
+- Server instructions now tell clients to inspect loaded ComfyUI nodes and node definitions before deciding whether an external integration is available, and to account for provider-specific API keys or credentials required by those nodes.
+
 ## [2.7.0] - 2026-08-18
 
 ### Added
