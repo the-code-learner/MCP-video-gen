@@ -29,12 +29,7 @@ def _read_source_ref() -> str:
 
 
 def _registered_tool_names(mcp: Any) -> list[str]:
-    """Return registered tool names without making a protocol round trip.
-
-    MCP SDK 2.x stores tools in ToolManager. This deliberately uses defensive
-    introspection so build_status still returns useful information if that
-    internal surface changes in a later compatible SDK release.
-    """
+    """Return registered tool names without making a protocol round trip."""
     manager = getattr(mcp, "_tool_manager", None)
     list_tools = getattr(manager, "list_tools", None)
     if not callable(list_tools):
@@ -70,27 +65,31 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
     async def build_status() -> dict[str, Any]:
         """Report the MCP build/version and safe runtime configuration.
 
-        Use this to verify that the client is talking to the expected deployed
-        release after an update. It intentionally returns no tokens, secrets,
-        credentials, Cloudflare audience values, signed URLs, or private file
-        contents. Capabilities supplied dynamically by ComfyUI custom nodes are
-        intentionally not declared present or absent here; inspect ComfyUI nodes.
+        Use this after deploys to verify the exact release seen by the connected
+        MCP client. No tokens, credentials, signed-URL queries or file contents
+        are returned. Dynamic third-party capabilities exposed by ComfyUI custom
+        nodes must still be inspected through node introspection.
         """
         tool_names = _registered_tool_names(mcp)
         remote_allowlist = os.getenv("REMOTE_IMPORT_ALLOWED_HOSTS", "").strip()
         instructions = str(getattr(mcp, "instructions", "") or "")
+        lowlevel = getattr(mcp, "_lowlevel_server", None)
 
         features = {
             "native_file_handoff": "get_cached_file_resource" in tool_names,
             "remote_file_ingress": "import_remote_file" in tool_names,
             "file_transfer_guide": "file_transfer_guide" in tool_names,
             "comfy_cache_image_upload": "comfy_upload_cached_image" in tool_names,
+            "comfy_cache_media_staging": "comfy_upload_cached_media" in tool_names,
             "workflow_loadimage_guard": "submit_workflow" in tool_names,
             "cache_retention_tools": all(
                 name in tool_names
                 for name in ("cache_status", "cache_cleanup", "cache_pin", "cache_unpin")
             ),
             "server_instructions_configured": bool(instructions.strip()),
+            "server_description_configured": bool(getattr(lowlevel, "description", "") or ""),
+            "webgui": _env_bool("WEBGUI_ENABLED", True),
+            "persistent_activity_audit": _env_bool("AUDIT_LOG_ENABLED", True),
             "blender_bridge_tools": "blender_info" in tool_names,
             "hyperframes": "hyperframes_info" in tool_names,
             "comfyui_node_introspection": all(
@@ -100,6 +99,7 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
 
         return {
             "server": getattr(mcp, "name", "video-mcp"),
+            "server_title": str(getattr(lowlevel, "title", "") or "MCP Video Gen"),
             "app_version": os.getenv("VIDEO_MCP_APP_VERSION", "unknown"),
             "source_ref": _read_source_ref(),
             "python_version": platform.python_version(),
@@ -117,33 +117,34 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "cleanup_enabled": _env_bool("CACHE_CLEANUP_ENABLED", False),
                 "retention_days": _env_float("CACHE_RETENTION_DAYS", 0.0),
                 "max_size_gb": _env_float("CACHE_MAX_SIZE_GB", 0.0),
-                "cleanup_interval_hours": _env_float(
-                    "CACHE_CLEANUP_INTERVAL_HOURS", 24.0
-                ),
+                "cleanup_interval_hours": _env_float("CACHE_CLEANUP_INTERVAL_HOURS", 24.0),
                 "default_behavior": (
                     "persistent/no automatic deletion when CACHE_CLEANUP_ENABLED is absent or false"
                 ),
+            },
+            "activity_audit": {
+                "enabled": _env_bool("AUDIT_LOG_ENABLED", True),
+                "retention_days": int(os.getenv("AUDIT_RETENTION_DAYS", "30")),
+                "max_rows": int(os.getenv("AUDIT_MAX_ROWS", "20000")),
+                "argument_policy": "sanitized/bounded; secret-like keys and binary-like payloads redacted",
             },
             "runtime": {
                 "listen_port": int(server_module.LISTEN_PORT),
                 "public_base_url_configured": bool(server_module.PUBLIC_BASE_URL),
                 "cloudflare_access_verify": bool(server_module.CF_VERIFY),
+                "webgui_enabled": _env_bool("WEBGUI_ENABLED", True),
                 "remote_import_allowlist_configured": bool(remote_allowlist),
-                "remote_import_max_redirects": int(
-                    os.getenv("REMOTE_IMPORT_MAX_REDIRECTS", "5")
-                ),
-                "remote_import_timeout_sec": int(
-                    os.getenv("REMOTE_IMPORT_TIMEOUT_SEC", "120")
-                ),
+                "remote_import_max_redirects": int(os.getenv("REMOTE_IMPORT_MAX_REDIRECTS", "5")),
+                "remote_import_timeout_sec": int(os.getenv("REMOTE_IMPORT_TIMEOUT_SEC", "120")),
                 "blender_enabled": _env_bool("BLENDER_ENABLED", False),
                 "models_mount_present": bool(server_module.MODELS.exists()),
                 "custom_nodes_mount_present": bool(server_module.NODES.exists()),
             },
             "routing_rule": (
-                "Use file_transfer_guide for file movement. Never pass external URLs, "
-                "ResourceLinks, /files paths, another MCP's references, or MCP file_ids "
-                "directly to standard ComfyUI LoadImage; cache/import first, then use "
-                "comfy_upload_cached_image(file_id). For third-party capabilities exposed "
-                "by ComfyUI custom nodes, inspect the loaded node and its definition/configuration."
+                "Use file_transfer_guide for file movement. Cache/import external media first. "
+                "Use comfy_upload_cached_media(file_id) to stage cached media into ComfyUI. "
+                "For standard LoadImage, use the returned workflow_load_image_value; for "
+                "audio/video/custom loaders, inspect the installed node definition and only "
+                "use workflow_input_value where that node expects an input filename/path."
             ),
         }
