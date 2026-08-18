@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.6.1] - 2026-08-18
+
+### Added
+
+- `build_status` MCP tool for verifying the exact deployed application version/source ref that the connected MCP client is talking to.
+- Safe runtime/build diagnostics including Python and MCP SDK versions, registered tool count, enabled feature flags, transfer/runtime limits, mount presence, and selected non-secret configuration booleans.
+- `VIDEO_MCP_SOURCE_REF` runtime export from the immutable bootstrap `.mcp-source-ready` marker so `build_status` can distinguish the running source ref from the application version.
+- Regression tests ensuring `build_status` counts the fully registered tool set and never exposes configured secrets such as Blender bridge tokens or Cloudflare audience values.
+
+### Security
+
+- `build_status` intentionally reports only safe configuration state. It never returns tokens, credentials, Cloudflare audience values, signed URLs, private file contents, or secret environment values.
+
 ## [2.6.0] - 2026-08-18
 
 ### Added
