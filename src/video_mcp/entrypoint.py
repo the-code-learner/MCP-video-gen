@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+
 import uvicorn
+from starlette.routing import Mount
 
 from . import server
 from .advanced_tools import register_advanced_tools
+from .audit import AuditLog, install_mcp_audit_middleware
 from .build_status import register_build_status_tool
 from .cache_adapters import register_cache_adapters
 from .cache_retention import register_cache_retention_tools
@@ -12,10 +16,14 @@ from .file_ingress import install_comfy_workflow_input_guard, register_file_ingr
 from .file_transfer import register_file_transfer_tools
 from .native_handoff import register_native_file_handoff
 from .server_instructions import install_server_instructions
+from .webgui import create_webgui_routes, webgui_enabled
 
-# Install global MCP usage/routing guidance before the server accepts clients.
-# These instructions complement per-tool descriptions and runtime guards.
+# Publish global MCP identity/usage guidance before the server accepts clients.
 install_server_instructions(server.mcp)
+
+# The audit store is lazy: importing this module in CI does not create /data.
+audit_log = AuditLog(server.DATA_ROOT)
+install_mcp_audit_middleware(server.mcp, audit_log)
 
 register_file_transfer_tools(
     server.mcp,
@@ -81,6 +89,31 @@ cache_retention_manager = register_cache_retention_tools(
     server.mcp,
     exports=server.EXPORTS,
 )
+
+# The Starlette shell already mounts MCP last at '/'. Insert WebGUI/API routes
+# immediately before that catch-all mount so `/mcp` remains owned by MCP while
+# `/`, `/api/*` and `/files/*` stay ordinary HTTP routes behind the same auth.
+if webgui_enabled():
+    routes = create_webgui_routes(
+        exports=server.EXPORTS,
+        tmp=server.TMP,
+        cached=server.cached,
+        target=server.target,
+        file_meta=server.file_meta,
+        retention_manager=cache_retention_manager,
+        audit=audit_log,
+        max_upload_mb=server.MAX_UPLOAD_MB,
+        app_version=os.getenv("VIDEO_MCP_APP_VERSION", "unknown"),
+        source_ref=os.getenv("VIDEO_MCP_SOURCE_REF", "unknown"),
+    )
+    starlette_app = server.app.app
+    mount_index = next(
+        (index for index, route in enumerate(starlette_app.router.routes) if isinstance(route, Mount)),
+        len(starlette_app.router.routes),
+    )
+    for route in routes:
+        starlette_app.router.routes.insert(mount_index, route)
+        mount_index += 1
 
 # Register last so build_status sees the complete runtime tool set, including
 # itself, and can report the same count a connected MCP client should discover.
