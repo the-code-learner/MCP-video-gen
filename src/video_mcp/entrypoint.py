@@ -7,6 +7,7 @@ from .advanced_tools import register_advanced_tools
 from .cache_adapters import register_cache_adapters
 from .external_backends import register_external_backend_tools
 from .file_transfer import register_file_transfer_tools
+from .native_handoff import register_native_file_handoff
 
 register_file_transfer_tools(
     server.mcp,
@@ -17,6 +18,12 @@ register_file_transfer_tools(
     file_meta=server.file_meta,
     max_upload_mb=server.MAX_UPLOAD_MB,
     max_inline_mb=server.MAX_INLINE_MB,
+)
+
+register_native_file_handoff(
+    server.mcp,
+    cached=server.cached,
+    public_base_url=server.PUBLIC_BASE_URL,
 )
 
 register_advanced_tools(
