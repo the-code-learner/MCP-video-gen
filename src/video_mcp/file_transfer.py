@@ -20,12 +20,14 @@ def register_file_transfer_tools(
     max_upload_mb: int,
     max_inline_mb: int,
 ) -> None:
-    """Register generic client<->MCP cache transfer tools.
+    """Register generic compatibility transfer tools around the canonical MCP cache.
 
-    Files imported through these tools become normal cache entries and can be
-    consumed by ComfyUI, Blender, FFmpeg, HyperFrames, timelines, and the other
-    media tools. Chunked transfer avoids requiring one very large MCP result or
-    request for binary files.
+    Prefer `import_remote_file` for client -> cache when the client supplies a
+    server-retrievable HTTPS reference, and `get_cached_file_resource` for cache
+    -> client. The binary base64 tools below remain for clients that cannot use
+    a native/retrievable reference. Files imported here still become normal
+    cache entries usable by ComfyUI, Blender, FFmpeg, HyperFrames and other
+    tools through `file_id`.
     """
 
     upload_root = (tmp / "client-uploads").resolve()
@@ -53,7 +55,14 @@ def register_file_transfer_tools(
         data_base64: str,
         source: str = "mcp-client",
     ) -> dict[str, Any]:
-        """Import a binary file from the MCP client into the persistent cache."""
+        """Compatibility fallback: import one small/medium binary base64 payload into cache.
+
+        Do not choose this when the client exposes a server-retrievable HTTPS
+        reference; use `import_remote_file` instead. For images that must enter
+        ComfyUI, this tool only creates the MCP `file_id`: afterwards call
+        `comfy_upload_cached_image(file_id)` and use its returned
+        `workflow_load_image_value` in standard LoadImage.
+        """
         data = base64.b64decode(data_base64, validate=True)
         if len(data) > max_upload_mb * 1024 * 1024:
             raise ValueError("Upload exceeds MAX_UPLOAD_MB; use chunked upload or increase the configured limit")
@@ -81,7 +90,13 @@ def register_file_transfer_tools(
         expected_size_bytes: int = 0,
         expected_sha256: str = "",
     ) -> dict[str, Any]:
-        """Begin a chunked binary upload from the MCP client/AI to the server cache."""
+        """Compatibility fallback: begin a bounded chunked base64 client -> cache upload.
+
+        Use only when no native/retrievable file reference is available. The
+        resulting cache artifact is identified by `file_id`; it is not yet a
+        ComfyUI input until `comfy_upload_cached_image(file_id)` is called for
+        image files.
+        """
         if expected_size_bytes < 0:
             raise ValueError("expected_size_bytes must be >= 0")
         limit = max_upload_mb * 1024 * 1024
@@ -109,7 +124,7 @@ def register_file_transfer_tools(
         offset_bytes: int,
         data_base64: str,
     ) -> dict[str, Any]:
-        """Append one base64 chunk to an in-progress upload; offsets must be contiguous."""
+        """Compatibility fallback: append one base64 chunk; offsets must be contiguous."""
         state = read_state(upload_id)
         part = part_path(upload_id)
         current = part.stat().st_size
@@ -131,7 +146,7 @@ def register_file_transfer_tools(
 
     @mcp.tool()
     async def file_upload_finish(upload_id: str) -> dict[str, Any]:
-        """Validate and promote a chunked upload into the persistent media cache."""
+        """Validate and promote a compatibility chunked upload into the persistent cache."""
         state = read_state(upload_id)
         part = part_path(upload_id)
         size = part.stat().st_size
@@ -156,14 +171,14 @@ def register_file_transfer_tools(
 
     @mcp.tool()
     async def file_upload_abort(upload_id: str) -> dict[str, Any]:
-        """Discard an incomplete client upload."""
+        """Discard an incomplete compatibility client upload."""
         state_path(upload_id).unlink(missing_ok=True)
         part_path(upload_id).unlink(missing_ok=True)
         return {"upload_id": upload_id, "aborted": True}
 
     @mcp.tool()
     async def get_cached_file_info(file_id: str) -> dict[str, Any]:
-        """Return cache metadata and transfer options for one file."""
+        """Return cache metadata and transfer options for one file_id."""
         path = cached(file_id)
         metadata_path = exports / f"{file_id}.json"
         if metadata_path.is_file():
@@ -184,7 +199,12 @@ def register_file_transfer_tools(
         offset_bytes: int = 0,
         length_bytes: int = 1024 * 1024,
     ) -> dict[str, Any]:
-        """Read a bounded binary chunk from the MCP cache for transfer back to the AI/client."""
+        """Compatibility/debug fallback: read one bounded cached-file chunk as base64.
+
+        Prefer `get_cached_file_resource(file_id)` and HTTP streaming for normal
+        delivery. Do not reconstruct large media through the model context when
+        a native/resource reference is available.
+        """
         path = cached(file_id)
         size = path.stat().st_size
         if offset_bytes < 0 or offset_bytes > size:
