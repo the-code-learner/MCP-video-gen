@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlsplit, urlunsplit
 
 _SECRET_KEY_RE = re.compile(
@@ -86,6 +86,41 @@ def _result_summary(result: Any) -> dict[str, Any]:
         summary["content_blocks"] = [type(item).__name__ for item in content[:20]]
         summary["content_count"] = len(content)
     return summary
+
+
+def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "timestamp_epoch": row["timestamp_epoch"],
+        "source": row["source"],
+        "method": row["method"],
+        "tool": row["tool"],
+        "status": row["status"],
+        "duration_ms": row["duration_ms"],
+        "arguments": json.loads(row["arguments_json"]) if row["arguments_json"] else None,
+        "result": json.loads(row["result_json"]) if row["result_json"] else None,
+        "error": row["error"],
+    }
+
+
+def _filters(
+    *,
+    source: str = "",
+    status: str = "",
+    tool: str = "",
+    method: str = "",
+    query: str = "",
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    for column, value in (("source", source), ("status", status), ("tool", tool), ("method", method)):
+        if value:
+            clauses.append(f"{column} LIKE ?")
+            params.append(f"%{value}%")
+    if query:
+        clauses.append("(tool LIKE ? OR method LIKE ?)")
+        params.extend((f"%{query}%", f"%{query}%"))
+    return clauses, params
 
 
 class AuditLog:
@@ -186,15 +221,17 @@ class AuditLog:
         status: str = "",
         tool: str = "",
         method: str = "",
+        query: str = "",
     ) -> dict[str, Any]:
         if not self.enabled:
             return {"enabled": False, "events": [], "count": 0}
-        clauses: list[str] = []
-        params: list[Any] = []
-        for column, value in (("source", source), ("status", status), ("tool", tool), ("method", method)):
-            if value:
-                clauses.append(f"{column} LIKE ?")
-                params.append(f"%{value}%")
+        clauses, params = _filters(
+            source=source,
+            status=status,
+            tool=tool,
+            method=method,
+            query=query,
+        )
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         limit = max(1, min(1000, int(limit)))
         offset = max(0, int(offset))
@@ -205,22 +242,7 @@ class AuditLog:
                     f"SELECT * FROM events{where} ORDER BY id DESC LIMIT ? OFFSET ?",
                     [*params, limit, offset],
                 ).fetchall()
-        events = []
-        for row in rows:
-            events.append(
-                {
-                    "id": row["id"],
-                    "timestamp_epoch": row["timestamp_epoch"],
-                    "source": row["source"],
-                    "method": row["method"],
-                    "tool": row["tool"],
-                    "status": row["status"],
-                    "duration_ms": row["duration_ms"],
-                    "arguments": json.loads(row["arguments_json"]) if row["arguments_json"] else None,
-                    "result": json.loads(row["result_json"]) if row["result_json"] else None,
-                    "error": row["error"],
-                }
-            )
+        events = [_event_from_row(row) for row in rows]
         return {
             "enabled": True,
             "count": count,
@@ -230,6 +252,51 @@ class AuditLog:
             "retention_days": self.retention_days,
             "max_rows": self.max_rows,
         }
+
+    def iter_events(
+        self,
+        *,
+        source: str = "",
+        status: str = "",
+        tool: str = "",
+        method: str = "",
+        query: str = "",
+        batch_size: int = 500,
+    ) -> Iterator[dict[str, Any]]:
+        """Iterate a stable newest-first filtered snapshot without holding the DB lock.
+
+        Keyset pagination by descending event id prevents newly-arriving audit rows
+        from shifting offsets while a WebGUI text export is being streamed.
+        """
+        if not self.enabled:
+            return
+        clauses, params = _filters(
+            source=source,
+            status=status,
+            tool=tool,
+            method=method,
+            query=query,
+        )
+        batch_size = max(1, min(1000, int(batch_size)))
+        last_id: int | None = None
+        while True:
+            page_clauses = list(clauses)
+            page_params = list(params)
+            if last_id is not None:
+                page_clauses.append("id < ?")
+                page_params.append(last_id)
+            where = " WHERE " + " AND ".join(page_clauses) if page_clauses else ""
+            with self._lock:
+                with self._connect() as conn:
+                    rows = conn.execute(
+                        f"SELECT * FROM events{where} ORDER BY id DESC LIMIT ?",
+                        [*page_params, batch_size],
+                    ).fetchall()
+            if not rows:
+                break
+            for row in rows:
+                yield _event_from_row(row)
+            last_id = int(rows[-1]["id"])
 
 
 def install_mcp_audit_middleware(mcp: Any, audit: AuditLog) -> None:
