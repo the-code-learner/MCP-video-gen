@@ -42,6 +42,7 @@ mkdir -p \
   "$DATA_ROOT/models/silero-vad" \
   "$DATA_ROOT/models/whisper" \
   "$DATA_ROOT/tooling/whisper.cpp" \
+  "$DATA_ROOT/tooling/rnnoise" \
   "$DATA_ROOT/piper/voices" \
   "$DATA_ROOT/timelines"
 
@@ -50,6 +51,44 @@ if is_true "${SILERO_VAD_ENABLED:-true}"; then
   SILERO_SHA="${SILERO_VAD_MODEL_SHA256:-2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f}"
   SILERO_PATH="${SILERO_VAD_MODEL_PATH:-$DATA_ROOT/models/silero-vad/silero_vad.onnx}"
   download_verified "$SILERO_URL" "$SILERO_SHA" "$SILERO_PATH"
+fi
+
+if is_true "${RNNOISE_ENABLED:-true}"; then
+  RNNOISE_REF="${RNNOISE_REF:-372f7b4b76cde4ca1ec4605353dd17898a99de38}"
+  RNNOISE_SOURCE_URL="${RNNOISE_SOURCE_URL:-https://github.com/xiph/rnnoise/archive/$RNNOISE_REF.tar.gz}"
+  RNNOISE_SOURCE_SHA="${RNNOISE_SOURCE_SHA256:-40ff1568af151959933699fcbf2db3ee3c62fa9559557dbf61a65e7a12cd335d}"
+  RNNOISE_MODEL_VERSION="${RNNOISE_MODEL_VERSION:-0b50c45}"
+  RNNOISE_MODEL_URL="${RNNOISE_MODEL_URL:-https://media.xiph.org/rnnoise/models/rnnoise_data-$RNNOISE_MODEL_VERSION.tar.gz}"
+  RNNOISE_MODEL_SHA="${RNNOISE_MODEL_SHA256:-4ac81c5c0884ec4bd5907026aaae16209b7b76cd9d7f71af582094a2f98f4b43}"
+  RNNOISE_ROOT="$DATA_ROOT/tooling/rnnoise"
+  RNNOISE_TARGET="$RNNOISE_ROOT/$RNNOISE_REF"
+
+  if [ ! -f "$RNNOISE_TARGET/install/usr/local/lib/librnnoise.so.0" ]; then
+    STAGING="$RNNOISE_ROOT/.staging-$RNNOISE_REF-$$"
+    SOURCE_ARCHIVE="$RNNOISE_ROOT/.source-$RNNOISE_REF.tar.gz"
+    MODEL_ARCHIVE="$RNNOISE_ROOT/.model-$RNNOISE_MODEL_VERSION.tar.gz"
+    rm -rf "$STAGING"
+    mkdir -p "$STAGING"
+    trap 'rm -rf "$STAGING"' INT TERM HUP EXIT
+
+    download_verified "$RNNOISE_SOURCE_URL" "$RNNOISE_SOURCE_SHA" "$SOURCE_ARCHIVE"
+    download_verified "$RNNOISE_MODEL_URL" "$RNNOISE_MODEL_SHA" "$MODEL_ARCHIVE"
+    tar -xzf "$SOURCE_ARCHIVE" --strip-components=1 -C "$STAGING"
+    cp "$MODEL_ARCHIVE" "$STAGING/rnnoise_data-$RNNOISE_MODEL_VERSION.tar.gz"
+
+    (
+      cd "$STAGING"
+      ./autogen.sh
+      ./configure --prefix=/usr/local --disable-static
+      make -j "${RNNOISE_BUILD_JOBS:-2}"
+      make DESTDIR="$STAGING/install" install
+    )
+    test -f "$STAGING/install/usr/local/lib/librnnoise.so.0"
+    rm -rf "$RNNOISE_TARGET"
+    mv "$STAGING" "$RNNOISE_TARGET"
+    trap - INT TERM HUP EXIT
+  fi
+  ln -sfn "$RNNOISE_TARGET" "$RNNOISE_ROOT/current"
 fi
 
 if is_true "${WHISPER_CPP_ENABLED:-true}"; then
