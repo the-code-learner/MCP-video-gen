@@ -6,15 +6,15 @@ VENV_DIR="${VIDEO_MCP_VENV_DIR:-/opt/venv}"
 DATA_ROOT="${VIDEO_MCP_DATA_ROOT:-/data}"
 REQ_FILE="$APP_DIR/requirements.txt"
 REQ_HASH_FILE="$VENV_DIR/.requirements.sha256"
-SYSTEM_MARKER="/opt/video-mcp-system-deps-v2"
+SYSTEM_MARKER="/opt/video-mcp-system-deps-v3"
 
 if [ ! -f "$SYSTEM_MARKER" ]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
     ffmpeg ca-certificates curl unzip \
-    cmake build-essential pkg-config \
-    aubio-tools librnnoise0 \
+    cmake build-essential pkg-config autoconf automake libtool \
+    aubio-tools \
     libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 \
     libxcomposite1 libxdamage1 libxrandr2 libcups2 libasound2 \
     libpangocairo-1.0-0 libxshmfence1 libgtk-3-0 \
