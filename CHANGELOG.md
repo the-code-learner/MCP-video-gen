@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.2.1] - 2026-08-18
+
+### Changed
+
+- Switched the project license from MIT to Apache License 2.0.
+- Added the required `NOTICE` attribution for redistributed copies and derivative works.
+- Updated README licensing and attribution documentation.
+
 ## [2.2.0] - 2026-08-18
 
 ### Added
