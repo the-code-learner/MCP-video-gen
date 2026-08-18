@@ -37,7 +37,13 @@ def test_expected_advanced_tools_are_registered_in_source():
 def test_ai_assets_are_checksum_pinned_and_excluded_tools_stay_out():
     prepare = (ROOT / "scripts" / "prepare_media_tools.sh").read_text()
     assert "SILERO_VAD_MODEL_SHA256" in prepare
+    assert "RNNOISE_SOURCE_SHA256" in prepare
+    assert "RNNOISE_MODEL_SHA256" in prepare
     assert "WHISPER_MODEL_SHA256" in prepare
+
+    start = (ROOT / "scripts" / "start.sh").read_text()
+    assert "librnnoise0" not in start
+    assert "video-mcp-rnnoise.conf" in start
 
     # Check the runtime implementation only. The regression test itself names
     # excluded tools, so scanning the whole repository would self-match.
