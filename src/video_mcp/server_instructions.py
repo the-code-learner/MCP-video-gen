@@ -20,7 +20,7 @@ MCP Video Gen is an execution and media-routing server. Follow these rules when 
 
 7. There is no generic standard cache-audio/video-to-ComfyUI adapter. Introspect the installed ComfyUI node/API that consumes that media. Do not put URLs into unrelated nodes as a workaround.
 
-8. Do not invent integrations or capabilities. Check `build_status`, `advanced_capabilities`, `external_backends_status`, `inventory_summary`, and node/model introspection when uncertain. ElevenLabs speech-to-speech is NOT implemented unless a dedicated ElevenLabs tool is actually present in the current tool list.
+8. Do not invent integrations or capabilities, but do not assume an external integration is absent merely because Video Gen has no dedicated MCP tool for it. ComfyUI custom nodes can expose third-party services and may require their own API keys or credentials. When uncertain, inspect `list_loaded_nodes`, `get_node_definition`, `inventory_summary`, `external_backends_status`, `advanced_capabilities`, and `build_status` before deciding whether a capability is available or configured.
 
 9. Cache files are persistent by default. Automatic cache deletion is disabled unless the deployment explicitly enables a retention policy. Use `cache_status` to inspect the active policy, `cache_pin` to protect important artifacts, `cache_unpin` to remove protection, and `cache_cleanup(dry_run=true)` before destructive manual cleanup. Pinned files must never be removed by retention cleanup.
 
