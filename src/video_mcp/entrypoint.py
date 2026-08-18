@@ -15,6 +15,7 @@ from .external_backends import register_external_backend_tools
 from .file_ingress import install_comfy_workflow_input_guard, register_file_ingress_tools
 from .file_transfer import register_file_transfer_tools
 from .native_handoff import register_native_file_handoff
+from .routing_guide import replace_file_transfer_guide
 from .server_instructions import install_server_instructions
 from .webgui import create_webgui_routes, webgui_enabled
 
@@ -81,6 +82,9 @@ register_cache_adapters(
     server_module=server,
     cached=server.cached,
 )
+
+# Replace the v2.6-era guide now that generic cache->ComfyUI staging exists.
+replace_file_transfer_guide(server.mcp)
 
 # Retention is fully opt-in. Register the tools unconditionally so clients can
 # inspect policy/status, but start the automatic worker only when explicitly
