@@ -102,7 +102,7 @@ VIDEO_MCP_FORCE_REFRESH=false
 You can also pin a release:
 
 ```text
-VIDEO_MCP_VERSION=v2.2.0
+VIDEO_MCP_VERSION=v2.2.2
 ```
 
 or a commit SHA:
@@ -122,6 +122,8 @@ video_mcp_code  -> /opt/video-mcp   versioned source cache + /current
 video_mcp_venv  -> /opt/venv        persistent Python virtual environment
 video_mcp_data  -> /data             media cache + HyperFrames projects/browser cache
 ```
+
+The application runtime data root defaults to `/data`. Direct/non-Stack deployments may override it with `VIDEO_MCP_DATA_ROOT`; importing `video_mcp.server` does not create the directory. Runtime directories are created only when the application starts.
 
 The Python environment is rebuilt only when `requirements.txt` changes. Rebuilding clears the **contents** of the mounted venv directory; it never removes the Docker mount point itself.
 
