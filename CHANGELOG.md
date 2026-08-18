@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.7.0] - 2026-08-18
+
+### Added
+
+- Opt-in persistent media-cache retention with age and/or maximum-size policies.
+- `cache_status` to inspect cache size, file counts, pinned items, active retention policy, and the number/size of files that would currently be eligible for deletion.
+- `cache_cleanup(dry_run=true)` for safe preview-first cleanup using the configured policy.
+- `cache_pin(file_id, note)` and `cache_unpin(file_id)` for persistent protection of important cached artifacts; pinned files are never selected by retention cleanup.
+- Server-level MCP instructions covering canonical file routing, cross-MCP isolation, ComfyUI `LoadImage` rules, native/reference-first transfer, cache retention, capability introspection, and the absence of ElevenLabs speech-to-speech unless a dedicated tool exists.
+
+### Changed
+
+- Automatic cleanup remains fully backward compatible and disabled unless `CACHE_CLEANUP_ENABLED=true` is explicitly provided. When retention variables are absent, cached files continue to persist indefinitely as before.
+- `build_status` now reports retention configuration, server-instruction presence, retention-tool availability, and an explicit `elevenlabs_speech_to_speech=false` capability flag.
+- `advanced_capabilities` explicitly reports `elevenlabs_speech_to_speech=false` so clients do not infer an unimplemented external integration.
+- When automatic cleanup is enabled, the MCP performs an initial maintenance pass after startup and repeats it at the configured interval. Cleanup failures never terminate the MCP process.
+
+### Retention configuration
+
+- `CACHE_CLEANUP_ENABLED=false` by default.
+- `CACHE_RETENTION_DAYS=0` disables age-based deletion.
+- `CACHE_MAX_SIZE_GB=0` disables size-based deletion.
+- `CACHE_CLEANUP_INTERVAL_HOURS=24` controls the automatic maintenance interval when cleanup is enabled.
+
 ## [2.6.1] - 2026-08-18
 
 ### Added

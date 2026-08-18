@@ -44,6 +44,13 @@ services:
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-32}"
       SCAN_MAX_FILES: "${SCAN_MAX_FILES:-5000}"
 
+      # Persistent media-cache retention is opt-in. These defaults preserve the
+      # historical behavior: files remain indefinitely unless explicitly enabled.
+      CACHE_CLEANUP_ENABLED: "${CACHE_CLEANUP_ENABLED:-false}"
+      CACHE_RETENTION_DAYS: "${CACHE_RETENTION_DAYS:-0}"
+      CACHE_MAX_SIZE_GB: "${CACHE_MAX_SIZE_GB:-0}"
+      CACHE_CLEANUP_INTERVAL_HOURS: "${CACHE_CLEANUP_INTERVAL_HOURS:-24}"
+
       FFMPEG_TIMEOUT_SEC: "${FFMPEG_TIMEOUT_SEC:-1800}"
       FFMPEG_MAX_LOG_CHARS: "${FFMPEG_MAX_LOG_CHARS:-12000}"
       FFMPEG_DEFAULT_CRF: "${FFMPEG_DEFAULT_CRF:-18}"

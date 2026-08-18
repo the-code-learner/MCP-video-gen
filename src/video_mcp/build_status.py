@@ -53,6 +53,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
     """Register a safe MCP-visible runtime/build introspection tool."""
 
@@ -67,6 +77,7 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
         """
         tool_names = _registered_tool_names(mcp)
         remote_allowlist = os.getenv("REMOTE_IMPORT_ALLOWED_HOSTS", "").strip()
+        instructions = str(getattr(mcp, "instructions", "") or "")
 
         features = {
             "native_file_handoff": "get_cached_file_resource" in tool_names,
@@ -74,8 +85,14 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             "file_transfer_guide": "file_transfer_guide" in tool_names,
             "comfy_cache_image_upload": "comfy_upload_cached_image" in tool_names,
             "workflow_loadimage_guard": "submit_workflow" in tool_names,
+            "cache_retention_tools": all(
+                name in tool_names
+                for name in ("cache_status", "cache_cleanup", "cache_pin", "cache_unpin")
+            ),
+            "server_instructions_configured": bool(instructions.strip()),
             "blender_bridge_tools": "blender_info" in tool_names,
             "hyperframes": "hyperframes_info" in tool_names,
+            "elevenlabs_speech_to_speech": False,
         }
 
         return {
@@ -92,6 +109,17 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "scan_max_files": int(server_module.SCAN_MAX_FILES),
                 "ffmpeg_timeout_sec": int(server_module.FFMPEG_TIMEOUT),
                 "hyperframes_timeout_sec": int(server_module.HF_TIMEOUT),
+            },
+            "cache_retention": {
+                "cleanup_enabled": _env_bool("CACHE_CLEANUP_ENABLED", False),
+                "retention_days": _env_float("CACHE_RETENTION_DAYS", 0.0),
+                "max_size_gb": _env_float("CACHE_MAX_SIZE_GB", 0.0),
+                "cleanup_interval_hours": _env_float(
+                    "CACHE_CLEANUP_INTERVAL_HOURS", 24.0
+                ),
+                "default_behavior": (
+                    "persistent/no automatic deletion when CACHE_CLEANUP_ENABLED is absent or false"
+                ),
             },
             "runtime": {
                 "listen_port": int(server_module.LISTEN_PORT),
@@ -110,8 +138,8 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             },
             "routing_rule": (
                 "Use file_transfer_guide for file movement. Never pass external URLs, "
-                "ResourceLinks, /files paths, or MCP file_ids directly to standard "
-                "ComfyUI LoadImage; cache/import first, then use "
+                "ResourceLinks, /files paths, another MCP's references, or MCP file_ids "
+                "directly to standard ComfyUI LoadImage; cache/import first, then use "
                 "comfy_upload_cached_image(file_id)."
             ),
         }
