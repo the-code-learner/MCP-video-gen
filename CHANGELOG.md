@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.8.1] - 2026-08-19
+
+### Changed
+
+- Strengthened `cache_file_base64`, `file_upload_begin`, `file_upload_chunk`, `file_upload_finish` and chunked-read tool descriptions so AI clients choose one-shot/reference transfer for small files instead of creating many tiny MCP round trips.
+- `file_upload_begin` now returns `max_chunk_decoded_bytes`, `recommended_next_chunk_bytes` and explicit transfer guidance. `file_upload_chunk` returns remaining bytes, a recommended next chunk size and a concrete next action.
+- `file_transfer_guide` now includes a client-to-cache decision tree and explicit chunk-efficiency rules: prefer `import_remote_file`, then one-shot `cache_file_base64` when practical, and use chunked upload only as a compatibility fallback with large chunks.
+- Server instructions now explicitly prohibit intentionally splitting small KB-sized files into many chunks and document the 4 MiB decoded per-call chunk ceiling plus a 1 MiB default target when client limits are unknown.
+
 ## [2.8.0] - 2026-08-18
 
 ### Added
