@@ -15,8 +15,11 @@ MCP Video Gen itself is licensed under the Apache License 2.0. The server can in
 | Silero VAD | Voice activity detection | Checksum-pinned ONNX model downloaded at runtime | See Silero VAD upstream license; model is stored in the persistent data volume. |
 | whisper.cpp | Local speech transcription | Source is downloaded/built locally at runtime | MIT upstream. Model files have their own upstream distribution terms. |
 | Piper | Optional local TTS | Optional `piper-tts` runtime install; disabled by default | Current Piper runtime is GPL-3.0. Voice models may have separate per-voice licenses. No voice is downloaded automatically by this project. |
+| Blender | Optional 3D creation/rendering backend | Installed independently on the host VM and invoked only through the optional local bridge; Blender is not bundled by this repository | Blender is GPL-licensed upstream. Files created with Blender are not automatically subject to Blender's GPL merely because Blender produced them; users remain responsible for third-party assets/add-ons they include. |
 | Cloudflared | Optional secure tunnel | Independent sidecar image | See Cloudflare upstream distribution terms. |
 
-The public repository does not include third-party model binaries or voice models. Where the default deployment downloads source/model artifacts automatically, URLs and SHA-256 values are explicit in `video-mcp.yml` / `scripts/prepare_media_tools.sh`, and the resulting artifacts are stored only in the deployment's persistent `/data` volume.
+The public repository does not include Blender, third-party model binaries, or voice models. Where the default deployment downloads source/model artifacts automatically, URLs and SHA-256 values are explicit in `video-mcp.yml` / `scripts/prepare_media_tools.sh`, and the resulting artifacts are stored only in the deployment's persistent `/data` volume.
 
-Users redistributing a deployment, container image, bundled model, or derivative work are responsible for complying with the licenses of the third-party components and model/voice assets they choose to include.
+The Blender bridge code in this repository is part of MCP Video Gen and remains Apache-2.0; it communicates with a separately installed Blender executable rather than redistributing Blender itself.
+
+Users redistributing a deployment, container image, bundled model, Blender add-on/asset, or derivative work are responsible for complying with the licenses of the third-party components and model/voice/asset files they choose to include.
