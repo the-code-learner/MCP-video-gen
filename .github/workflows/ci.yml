@@ -25,7 +25,9 @@ jobs:
           python -m pip install -r requirements.txt pytest PyYAML
 
       - name: Compile Python
-        run: python -m compileall -q src
+        run: |
+          python -m compileall -q src
+          python -m py_compile scripts/blender_bridge.py
 
       - name: Import MCP server and full entrypoint
         env:
@@ -55,8 +57,6 @@ jobs:
 
       - name: Validate Compose model
         env:
-          COMFYUI_MODELS_PATH: /tmp/models
-          COMFYUI_CUSTOM_NODES_PATH: /tmp/custom_nodes
           CLOUDFLARED_TUNNEL_TOKEN: x
         run: docker compose -f video-mcp.yml config >/dev/null
 
