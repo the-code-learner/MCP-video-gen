@@ -9,32 +9,62 @@ def replace_file_transfer_guide(mcp: Any) -> None:
 
     @mcp.tool()
     async def file_transfer_guide() -> dict[str, Any]:
-        """Return canonical file-routing rules for MCP Video Gen.
+        """Return canonical file-routing and transfer-efficiency rules for Video Gen.
 
         Use this before moving attachments or building workflows when routing is
-        ambiguous. `file_id` is local to this MCP cache. Cached media can be
-        staged into ComfyUI with `comfy_upload_cached_media`, but audio/video
-        loader semantics remain node-specific and must be introspected.
+        ambiguous. `file_id` is local to this MCP cache. Prefer native/reference
+        transfer, avoid model-mediated base64 when possible, and never split small
+        files into many tiny MCP chunk calls.
         """
         return {
             "canonical_identifier": "file_id inside THIS MCP Video Gen cache",
             "golden_rules": [
                 "MCP servers are independent. Never pass another MCP's file_id, ResourceLink or proprietary URI directly to a Video Gen backend.",
+                "For client -> cache, first prefer import_remote_file(uri) when a real server-retrievable HTTPS URL exists.",
+                "If the complete base64 payload already exists and comfortably fits one tool call, use cache_file_base64 once rather than starting a chunked upload.",
+                "Never intentionally split a small KB-sized file into many file_upload_chunk calls. Every chunk is a separate MCP/LLM round trip.",
+                "When chunking is genuinely required, use the largest practical decoded chunk. The server accepts up to 4 MiB decoded per file_upload_chunk; about 1 MiB is a reasonable default when client limits are unknown.",
+                "If remaining_bytes is <= 4 MiB and the remaining bytes are available, send the entire remainder in one chunk and then call file_upload_finish immediately.",
                 "Never pass HTTP(S) URLs, ResourceLinks, /files paths, or MCP file_ids directly to standard ComfyUI LoadImage.",
                 "For cached media: comfy_upload_cached_media(file_id) stages the file into ComfyUI input without a client/base64 round trip.",
                 "For standard LoadImage, use workflow_load_image_value returned by the staging tool.",
                 "For audio/video/custom loaders, inspect list_loaded_nodes/get_node_definition and use workflow_input_value only where that node expects an input filename/path.",
-                "For a client file with a server-retrievable HTTPS URL: import_remote_file(uri) -> file_id before backend use.",
                 "If the client exposes only an opaque file identifier, use the supported client upload path; do not invent a URL.",
                 "Prefer native references and server-side streaming over base64 compatibility tools.",
                 "Never resize, recompress or transcode solely to make a file fit through a tool result.",
             ],
+            "client_to_cache_decision": [
+                {
+                    "priority": 1,
+                    "condition": "real server-retrievable HTTPS URL is available",
+                    "action": "import_remote_file(uri)",
+                    "why": "server-side streaming; avoids binary/base64 through the model",
+                },
+                {
+                    "priority": 2,
+                    "condition": "complete base64 payload is already available and fits one tool call",
+                    "action": "cache_file_base64(filename, data_base64)",
+                    "why": "one MCP round trip; strongly preferred for small files",
+                },
+                {
+                    "priority": 3,
+                    "condition": "one-shot base64 is impractical and no retrievable reference exists",
+                    "action": "file_upload_begin -> large file_upload_chunk calls -> file_upload_finish",
+                    "why": "compatibility fallback; minimize number of model-mediated calls",
+                },
+            ],
+            "chunking": {
+                "max_decoded_bytes_per_call": 4194304,
+                "default_target_decoded_bytes": 1048576,
+                "anti_pattern": "many KB-sized chunks for a small file",
+                "rule": "use the largest practical chunk; if the remainder is <= 4 MiB, send it in one final chunk when available",
+            },
             "routes": {
                 "client_reference_to_cache": {
                     "preferred": "import_remote_file(uri)",
                     "requires": "server-retrievable public HTTPS URL",
                     "result": "file_id",
-                    "fallback": "cache_file_base64 or file_upload_begin/chunk/finish",
+                    "fallback": "cache_file_base64 once if practical; otherwise file_upload_begin/chunk/finish with large chunks",
                 },
                 "cache_media_to_comfyui_input": {
                     "tool": "comfy_upload_cached_media(file_id)",
