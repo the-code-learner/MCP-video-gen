@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .advanced_common import MediaContext
-from . import advanced_audio, advanced_editing, advanced_ffmpeg
+from . import advanced_audio, advanced_completion, advanced_editing, advanced_ffmpeg
 
 _REGISTERED = False
 
@@ -47,3 +47,4 @@ def register_advanced_tools(
     advanced_ffmpeg.register(mcp, c)
     advanced_editing.register(mcp, c)
     advanced_audio.register(mcp, c)
+    advanced_completion.register(mcp, c)
