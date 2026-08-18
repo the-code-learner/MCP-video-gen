@@ -2,6 +2,7 @@ mcp>=2,<3
 httpx>=0.28,<1
 PyJWT[crypto]>=2.10,<3
 uvicorn>=0.35,<1
+starlette>=0.39,<2
 numpy>=1.26,<3
 onnxruntime>=1.19,<2
 opencv-python-headless>=4.10,<5
