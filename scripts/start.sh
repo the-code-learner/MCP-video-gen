@@ -77,7 +77,9 @@ if [ -f "$RNNOISE_LIB_DIR/librnnoise.so.0" ]; then
 fi
 
 APP_VERSION="$(cat "$APP_DIR/VERSION" 2>/dev/null || printf 'unknown')"
+SOURCE_REF="$(cat "$APP_DIR/.mcp-source-ready" 2>/dev/null || printf 'unknown')"
 export VIDEO_MCP_APP_VERSION="$APP_VERSION"
+export VIDEO_MCP_SOURCE_REF="$SOURCE_REF"
 export PYTHONPATH="$APP_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 RUN_UID="${MCP_RUN_UID:-65534}"

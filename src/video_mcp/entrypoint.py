@@ -4,6 +4,7 @@ import uvicorn
 
 from . import server
 from .advanced_tools import register_advanced_tools
+from .build_status import register_build_status_tool
 from .cache_adapters import register_cache_adapters
 from .external_backends import register_external_backend_tools
 from .file_ingress import install_comfy_workflow_input_guard, register_file_ingress_tools
@@ -66,6 +67,10 @@ register_cache_adapters(
     server_module=server,
     cached=server.cached,
 )
+
+# Register last so build_status sees the complete runtime tool set, including
+# itself, and can report the same count a connected MCP client should discover.
+register_build_status_tool(server.mcp, server_module=server)
 
 
 if __name__ == "__main__":
