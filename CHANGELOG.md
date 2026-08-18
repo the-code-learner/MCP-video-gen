@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.4.1] - 2026-08-18
+
+### Added
+
+- `comfy_upload_cached_image` directly uploads an existing MCP cache image to ComfyUI without routing the file bytes through the AI/client context.
+- The adapter preserves the optional-backend contract: unreachable ComfyUI returns a structured `available=false` result instead of an MCP tool error.
+
 ## [2.4.0] - 2026-08-18
 
 ### Added

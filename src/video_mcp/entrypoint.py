@@ -4,6 +4,7 @@ import uvicorn
 
 from . import server
 from .advanced_tools import register_advanced_tools
+from .cache_adapters import register_cache_adapters
 from .external_backends import register_external_backend_tools
 from .file_transfer import register_file_transfer_tools
 
@@ -36,6 +37,12 @@ register_external_backend_tools(
     cached=server.cached,
     target=server.target,
     file_meta=server.file_meta,
+)
+
+register_cache_adapters(
+    server.mcp,
+    server_module=server,
+    cached=server.cached,
 )
 
 
