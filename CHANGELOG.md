@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.8.0] - 2026-08-18
+
+### Added
+
+- Lightweight same-process WebGUI at `/` with Cache and Activity tabs; no separate frontend service or build pipeline is required.
+- Cache browser with previews where supported, search, direct downloads, streamed browser uploads, pin/unpin, explicit deletion, size/retention status and copyable `file_id` values.
+- Persistent bounded SQLite activity audit under `/data/audit/events.sqlite3`, covering inbound MCP messages and WebGUI mutations with tool/method, status, duration and sanitized argument/result summaries.
+- `comfy_upload_cached_media(file_id)` as the generic server-side cache -> ComfyUI input staging tool for images, audio, video and other files. It returns `workflow_input_value`; images additionally return `workflow_load_image_value` for standard `LoadImage`.
+- Runtime replacement of `file_transfer_guide` so audio/video routing reflects generic staging while preserving the rule that custom loader semantics must be introspected.
+- Stronger MCP server identity metadata and instructions so clients are reminded that MCP Video Gen is available for media/ComfyUI/FFmpeg/HyperFrames/Blender/audio tasks.
+
+### Changed
+
+- `comfy_upload_cached_image` remains as a backward-compatible image-only alias and now directs non-image callers to `comfy_upload_cached_media`.
+- Cached media staging uses ComfyUI's current `/upload/image` endpoint only as a transport-level input-directory writer; audio/video workflow wiring is never guessed and still requires `list_loaded_nodes` / `get_node_definition` when node semantics are uncertain.
+- `build_status` now reports generic ComfyUI media staging, WebGUI/audit availability and server identity metadata.
+- WebGUI upload streams bytes directly to the persistent MCP cache and enforces `MAX_UPLOAD_MB`; no browser upload is converted to base64.
+
+### Security
+
+- WebGUI mutating routes require a same-origin custom request header in addition to the deployment's existing HTTP authentication boundary, preventing ordinary cross-site form submissions from mutating cache state.
+- Audit persistence redacts secret-like keys, strips HTTP(S) query strings such as signed URL tokens, bounds large values and does not intentionally persist binary/base64 payloads.
+- Pinned cache files cannot be deleted from the WebGUI without an explicit forced confirmation path.
+
+### Configuration
+
+- `WEBGUI_ENABLED=true` by default; set `false` to omit the `/` dashboard and `/api/*` dashboard routes.
+- `AUDIT_LOG_ENABLED=true` by default.
+- `AUDIT_RETENTION_DAYS=30` controls age-based audit retention; `0` disables the age rule.
+- `AUDIT_MAX_ROWS=20000` bounds the persisted audit history.
+
 ## [2.7.1] - 2026-08-18
 
 ### Fixed
