@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+MAX_CHUNK_DECODED_BYTES = 4 * 1024 * 1024
+RECOMMENDED_CHUNK_DECODED_BYTES = 1024 * 1024
+
+
 def register_file_transfer_tools(
     mcp: Any,
     *,
@@ -20,14 +24,18 @@ def register_file_transfer_tools(
     max_upload_mb: int,
     max_inline_mb: int,
 ) -> None:
-    """Register generic compatibility transfer tools around the canonical MCP cache.
+    """Register compatibility transfer tools around the canonical MCP cache.
 
-    Prefer `import_remote_file` for client -> cache when the client supplies a
-    server-retrievable HTTPS reference, and `get_cached_file_resource` for cache
-    -> client. The binary base64 tools below remain for clients that cannot use
-    a native/retrievable reference. Files imported here still become normal
-    cache entries usable by ComfyUI, Blender, FFmpeg, HyperFrames and other
-    tools through `file_id`.
+    Routing order for AI clients:
+    1. Prefer `import_remote_file(uri)` when a real server-retrievable HTTPS URL exists.
+    2. If the complete file is already available as base64 and fits one tool call,
+       prefer one `cache_file_base64(...)` call, especially for small files.
+    3. Use `file_upload_begin/chunk/finish` only when one-shot transfer is not
+       practical. When chunking, use large chunks rather than many KB-sized calls.
+    4. Prefer `get_cached_file_resource`/HTTP streaming for cache -> client delivery.
+
+    Files imported here become normal cache entries usable by ComfyUI, Blender,
+    FFmpeg, HyperFrames and the other media tools through local `file_id` values.
     """
 
     upload_root = (tmp / "client-uploads").resolve()
@@ -55,13 +63,21 @@ def register_file_transfer_tools(
         data_base64: str,
         source: str = "mcp-client",
     ) -> dict[str, Any]:
-        """Compatibility fallback: import one small/medium binary base64 payload into cache.
+        """Import one complete base64 file into the Video Gen cache in a single call.
 
-        Do not choose this when the client exposes a server-retrievable HTTPS
-        reference; use `import_remote_file` instead. For images that must enter
-        ComfyUI, this tool only creates the MCP `file_id`: afterwards call
-        `comfy_upload_cached_image(file_id)` and use its returned
-        `workflow_load_image_value` in standard LoadImage.
+        USE THIS instead of chunked upload when all file bytes/base64 are already
+        available and the payload comfortably fits one tool call. This is strongly
+        preferred for small files such as tens or hundreds of KiB: do NOT split a
+        small audio/image/file into many KB-sized `file_upload_chunk` calls.
+
+        Do NOT choose this when the client exposes a real server-retrievable HTTPS
+        URL; use `import_remote_file(uri)` instead because it streams server-side and
+        avoids base64 through the model. The decoded file must remain within
+        MAX_UPLOAD_MB.
+
+        After caching, use the returned local `file_id`. To stage any cached media
+        into ComfyUI, call `comfy_upload_cached_media(file_id)`; for standard
+        LoadImage use the returned `workflow_load_image_value`.
         """
         data = base64.b64decode(data_base64, validate=True)
         if len(data) > max_upload_mb * 1024 * 1024:
@@ -90,12 +106,17 @@ def register_file_transfer_tools(
         expected_size_bytes: int = 0,
         expected_sha256: str = "",
     ) -> dict[str, Any]:
-        """Compatibility fallback: begin a bounded chunked base64 client -> cache upload.
+        """Begin a chunked base64 upload only when one-shot transfer is impractical.
 
-        Use only when no native/retrievable file reference is available. The
-        resulting cache artifact is identified by `file_id`; it is not yet a
-        ComfyUI input until `comfy_upload_cached_image(file_id)` is called for
-        image files.
+        Before calling this tool, prefer `import_remote_file(uri)` for a retrievable
+        HTTPS URL. If the complete base64 payload is already available and fits one
+        tool call, prefer `cache_file_base64` instead. In particular, do NOT start a
+        chunked session merely for a small KB-sized file.
+
+        If chunking is genuinely required, send the largest practical decoded chunk.
+        This server accepts up to 4 MiB decoded per `file_upload_chunk`; around 1 MiB
+        decoded per call is a good default when client limits are unknown. Avoid tiny
+        chunks because every chunk is a separate MCP/LLM round trip.
         """
         if expected_size_bytes < 0:
             raise ValueError("expected_size_bytes must be >= 0")
@@ -116,7 +137,23 @@ def register_file_transfer_tools(
             raise ValueError("Invalid filename")
         part_path(upload_id).write_bytes(b"")
         state_path(upload_id).write_text(json.dumps(state, indent=2), encoding="utf-8")
-        return {**state, "next_offset": 0, "max_upload_bytes": limit}
+        recommended = (
+            min(expected_size_bytes, MAX_CHUNK_DECODED_BYTES)
+            if expected_size_bytes
+            else RECOMMENDED_CHUNK_DECODED_BYTES
+        )
+        return {
+            **state,
+            "next_offset": 0,
+            "max_upload_bytes": limit,
+            "max_chunk_decoded_bytes": MAX_CHUNK_DECODED_BYTES,
+            "recommended_next_chunk_bytes": recommended,
+            "transfer_guidance": (
+                "Use the largest practical chunk. If the whole file is already available "
+                "and fits one tool call, abort this session and use cache_file_base64 instead. "
+                "Do not send many KB-sized chunks unless the client imposes that limit."
+            ),
+        }
 
     @mcp.tool()
     async def file_upload_chunk(
@@ -124,14 +161,24 @@ def register_file_transfer_tools(
         offset_bytes: int,
         data_base64: str,
     ) -> dict[str, Any]:
-        """Compatibility fallback: append one base64 chunk; offsets must be contiguous."""
+        """Append one contiguous chunk to an existing compatibility upload.
+
+        IMPORTANT FOR AI CLIENTS: each call is a full MCP/LLM round trip. Use the
+        largest practical chunk and never intentionally drip-feed a small file in
+        KB-sized pieces. Maximum decoded chunk size is 4 MiB. Around 1 MiB is a
+        reasonable default; if the remaining file is <= 4 MiB and the bytes are
+        available, send the entire remainder in one call.
+
+        `offset_bytes` MUST equal the `next_offset` returned by the previous call.
+        After the final bytes are uploaded, call `file_upload_finish(upload_id)`.
+        """
         state = read_state(upload_id)
         part = part_path(upload_id)
         current = part.stat().st_size
         if offset_bytes != current:
             raise ValueError(f"offset_bytes must equal next_offset {current}")
         data = base64.b64decode(data_base64, validate=True)
-        if len(data) > 4 * 1024 * 1024:
+        if len(data) > MAX_CHUNK_DECODED_BYTES:
             raise ValueError("A single chunk may not exceed 4 MiB decoded")
         new_size = current + len(data)
         limit = max_upload_mb * 1024 * 1024
@@ -142,11 +189,41 @@ def register_file_transfer_tools(
             raise ValueError("Upload exceeds expected_size_bytes")
         with part.open("ab") as handle:
             handle.write(data)
-        return {"upload_id": upload_id, "received_bytes": len(data), "next_offset": new_size}
+
+        remaining = max(0, expected - new_size) if expected else None
+        recommended = (
+            min(remaining, MAX_CHUNK_DECODED_BYTES)
+            if remaining is not None
+            else RECOMMENDED_CHUNK_DECODED_BYTES
+        )
+        return {
+            "upload_id": upload_id,
+            "received_bytes": len(data),
+            "next_offset": new_size,
+            "expected_size_bytes": expected or None,
+            "remaining_bytes": remaining,
+            "max_chunk_decoded_bytes": MAX_CHUNK_DECODED_BYTES,
+            "recommended_next_chunk_bytes": recommended,
+            "next_action": (
+                "file_upload_finish(upload_id)"
+                if remaining == 0
+                else "send one large contiguous file_upload_chunk at next_offset"
+            ),
+            "transfer_guidance": (
+                "Do not use tiny chunks. If remaining_bytes is <= 4 MiB and you have "
+                "the bytes, send the whole remainder in one call."
+            ),
+        }
 
     @mcp.tool()
     async def file_upload_finish(upload_id: str) -> dict[str, Any]:
-        """Validate and promote a compatibility chunked upload into the persistent cache."""
+        """Validate and promote a completed chunked upload into the persistent cache.
+
+        Call this immediately after the final chunk. If `expected_size_bytes` was
+        supplied to `file_upload_begin`, finish succeeds only when that exact byte
+        count has arrived. The returned `file_id` is the canonical local identifier
+        for all later Video Gen operations.
+        """
         state = read_state(upload_id)
         part = part_path(upload_id)
         size = part.stat().st_size
@@ -178,7 +255,7 @@ def register_file_transfer_tools(
 
     @mcp.tool()
     async def get_cached_file_info(file_id: str) -> dict[str, Any]:
-        """Return cache metadata and transfer options for one file_id."""
+        """Return cache metadata and transfer options for one local file_id."""
         path = cached(file_id)
         metadata_path = exports / f"{file_id}.json"
         if metadata_path.is_file():
@@ -199,17 +276,18 @@ def register_file_transfer_tools(
         offset_bytes: int = 0,
         length_bytes: int = 1024 * 1024,
     ) -> dict[str, Any]:
-        """Compatibility/debug fallback: read one bounded cached-file chunk as base64.
+        """Compatibility/debug fallback: read a cached-file chunk as base64.
 
         Prefer `get_cached_file_resource(file_id)` and HTTP streaming for normal
-        delivery. Do not reconstruct large media through the model context when
-        a native/resource reference is available.
+        delivery. Do not reconstruct large media through repeated model-mediated
+        chunk calls when a native/resource reference is available. If chunked read
+        is unavoidable, request large chunks rather than many KB-sized reads.
         """
         path = cached(file_id)
         size = path.stat().st_size
         if offset_bytes < 0 or offset_bytes > size:
             raise ValueError("offset_bytes is outside the file")
-        max_chunk = min(max_inline_mb * 1024 * 1024, 4 * 1024 * 1024)
+        max_chunk = min(max_inline_mb * 1024 * 1024, MAX_CHUNK_DECODED_BYTES)
         length = max(1, min(length_bytes, max_chunk))
         with path.open("rb") as handle:
             handle.seek(offset_bytes)
