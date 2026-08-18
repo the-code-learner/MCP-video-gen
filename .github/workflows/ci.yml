@@ -27,12 +27,19 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q src
 
-      - name: Import MCP server
+      - name: Import MCP server and full entrypoint
         env:
           PYTHONPATH: src
-        run: python -c "import video_mcp.server"
+          VIDEO_MCP_DATA_ROOT: /tmp/video-mcp-import-guard
+        run: |
+          rm -rf "$VIDEO_MCP_DATA_ROOT"
+          python -c "import video_mcp.server"
+          python -c "import video_mcp.entrypoint"
+          test ! -e "$VIDEO_MCP_DATA_ROOT"
 
       - name: Unit and release-contract tests
+        env:
+          PYTHONPATH: src
         run: pytest -q
 
       - name: Validate public-repository safety
@@ -42,7 +49,9 @@ jobs:
         run: python -c "import yaml; yaml.safe_load(open('video-mcp.yml', encoding='utf-8'))"
 
       - name: Validate shell syntax
-        run: /bin/sh -n scripts/start.sh
+        run: |
+          /bin/sh -n scripts/start.sh
+          /bin/sh -n scripts/prepare_media_tools.sh
 
       - name: Validate Compose model
         env:
