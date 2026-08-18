@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.3.1] - 2026-08-18
+
+### Added
+
+- Explicit `subtitle_retime` tool for proportional subtitle timing changes plus millisecond shifts while preserving subtitle structure/styles.
+- Explicit `transcribe_words` tool based on whisper.cpp full JSON token timestamps. Whitespace languages are grouped into word-like spans; no-space scripts safely fall back to timestamped token units.
+- Regression tests for whisper.cpp token-to-word grouping and no-space-script fallback behavior.
+
 ## [2.3.0] - 2026-08-18
 
 ### Added
