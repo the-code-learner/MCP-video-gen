@@ -14,7 +14,7 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 - pysubs2 subtitle creation, retiming, conversion, ASS styling, and FFmpeg subtitle burn-in.
 - Persistent OpenTimelineIO timelines with tracks, clips, transitions, markers, inspection, reordering, and export.
 - aubio beat, tempo, onset, and pitch analysis.
-- RNNoise local speech denoising using the system library.
+- RNNoise local speech denoising using a checksum-pinned upstream source/model build stored persistently under `/data/tooling/rnnoise`.
 - Silero VAD ONNX speech-segment detection with a checksum-pinned small model stored under `/data/models`.
 - whisper.cpp local transcription and subtitle generation using a persistent checksum-pinned quantized model.
 - Optional Piper TTS integration, disabled by default, with persistent user-supplied voice assets.
@@ -23,7 +23,8 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 
 ### Changed
 
-- Runtime system dependencies now include aubio, RNNoise, and the minimal build tools required to prepare whisper.cpp locally.
+- Runtime system dependencies now include aubio plus the small build-tool set required to prepare RNNoise and whisper.cpp locally.
+- Extended the initial Docker healthcheck grace period to accommodate first-start local builds/downloads on slower hosts.
 - ComfyUI remains the model-generation backend and can provide video, image, or audio outputs to the same media cache; advanced utilities are independent post-processing/analysis primitives.
 
 ## [2.2.2] - 2026-08-18
