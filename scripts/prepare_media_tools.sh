@@ -50,9 +50,21 @@ mkdir -p \
   "$DATA_ROOT/timelines"
 
 if is_true "${SILERO_VAD_ENABLED:-true}"; then
-  SILERO_URL="${SILERO_VAD_MODEL_URL:-https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad.onnx}"
-  SILERO_SHA="${SILERO_VAD_MODEL_SHA256:-2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f}"
+  SILERO_DEFAULT_URL="https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad.onnx"
+  SILERO_DEFAULT_SHA="1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
+  SILERO_LEGACY_BAD_SHA="2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f"
+  SILERO_URL="${SILERO_VAD_MODEL_URL:-$SILERO_DEFAULT_URL}"
+  SILERO_SHA="${SILERO_VAD_MODEL_SHA256:-$SILERO_DEFAULT_SHA}"
   SILERO_PATH="${SILERO_VAD_MODEL_PATH:-$DATA_ROOT/models/silero-vad/silero_vad.onnx}"
+
+  # v2.4.2 shipped an incorrect default SHA in the Portainer YAML. Preserve
+  # compatibility with already-deployed stacks while keeping checksum
+  # verification strict for custom URLs and custom pins.
+  if [ "$SILERO_URL" = "$SILERO_DEFAULT_URL" ] && [ "$SILERO_SHA" = "$SILERO_LEGACY_BAD_SHA" ]; then
+    echo "Replacing legacy incorrect Silero VAD v6.2.1 checksum pin." >&2
+    SILERO_SHA="$SILERO_DEFAULT_SHA"
+  fi
+
   download_verified "$SILERO_URL" "$SILERO_SHA" "$SILERO_PATH"
 fi
 
