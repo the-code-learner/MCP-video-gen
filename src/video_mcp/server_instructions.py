@@ -28,7 +28,7 @@ MCP Video Gen is an execution and media-routing server. Follow these rules when 
 
 5. For an external file with a real HTTPS URL that this server can retrieve, call `import_remote_file(uri)` first. It returns a Video Gen `file_id`. If the client only exposes an opaque/local file identifier and no server-retrievable URL, use the supported client upload path; do not invent a URL.
 
-6. Prefer native file/resource references and server-side streaming over base64. `cache_file_base64`, chunked base64 upload/read, and inline base64 are compatibility fallbacks, not the normal media path. Never resize, recompress, or transcode solely to fit media through a tool result.
+6. Prefer native file/resource references and server-side streaming over base64. If a complete small file is already available as base64 and fits one tool call, use `cache_file_base64` once instead of starting a chunked upload. Use `file_upload_begin/chunk/finish` only when one-shot transfer is impractical. Each chunk is a full MCP/LLM round trip: never intentionally split a small KB-sized file into many tiny chunks. Use the largest practical chunk; `file_upload_chunk` accepts up to 4 MiB decoded per call, with about 1 MiB a good default when client limits are unknown. Never resize, recompress, or transcode solely to fit media through a tool result.
 
 7. ComfyUI output should be normalized into the Video Gen cache with `cache_output`. Return cached files to the client with `get_cached_file_resource`. Pass cached files to Blender and HyperFrames using their documented `file_id` adapters rather than temporary public URLs.
 
