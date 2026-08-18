@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.5.0] - 2026-08-18
+
+### Added
+
+- Native MCP `ResourceLink` output through `get_cached_file_resource(file_id)`, keeping `file_id` as the canonical artifact identifier without embedding binary bytes in the tool result.
+- `media://cache/{file_id}` MCP resource template as a protocol-level compatibility path when a direct public HTTP(S) file URI is not configured or cannot be used.
+- Explicit `starlette>=0.39,<2` runtime dependency and regression coverage for `GET`/`HEAD` plus HTTP byte-range responses on `/files/{file_id}`.
+- `docs/FILE_HANDOFF.md` documenting the preferred native-reference/streaming architecture and the remaining compatibility fallbacks.
+
+### Changed
+
+- When `PUBLIC_BASE_URL` is configured, `get_cached_file_resource` prefers the authenticated streaming `/files/{file_id}` URI for large images, video, audio, 3D assets and other binaries.
+- `comfy_upload_cached_image` now sends cached image bytes directly to ComfyUI as multipart/form-data instead of converting them to base64 first.
+- Inline and chunked base64 output tools remain available for compatibility/debugging, but are no longer the recommended media handoff path.
+- Project rule: never resize, recompress, transcode or otherwise alter an artifact solely to make it fit through a tool result.
+
 ## [2.4.3] - 2026-08-18
 
 ### Fixed
