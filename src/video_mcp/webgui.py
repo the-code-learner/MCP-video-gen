@@ -6,11 +6,12 @@ import mimetypes
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.routing import Route
 
 from .audit import AuditLog
@@ -96,7 +97,7 @@ input,select{background:#12151b;color:var(--text);border:1px solid var(--line);b
 <div id="cacheTable"></div>
 </section>
 <section id="activity" class="panel">
-<div class="toolbar"><input id="activityTool" placeholder="Tool / method filter"><select id="activitySource"><option value="">All sources</option><option value="mcp">MCP</option><option value="webgui">WebGUI</option></select><select id="activityStatus"><option value="">All statuses</option><option value="success">Success</option><option value="error">Error</option></select><button onclick="loadActivity()">Refresh</button><span id="auditStats" class="stat"></span></div>
+<div class="toolbar"><input id="activityTool" placeholder="Tool / method filter"><select id="activitySource"><option value="">All sources</option><option value="mcp">MCP</option><option value="webgui">WebGUI</option></select><select id="activityStatus"><option value="">All statuses</option><option value="success">Success</option><option value="error">Error</option></select><button onclick="loadActivity()">Refresh</button><button onclick="downloadActivity()">Download TXT</button><span id="auditStats" class="stat"></span></div>
 <div id="activityTable"></div>
 </section>
 </main><div id="toast" class="toast"></div>
@@ -113,9 +114,12 @@ async function loadCache(){const j=await api('/api/cache');state.cache=j.files;d
 async function togglePin(id,pin){await api(`/api/cache/${id}/${pin?'pin':'unpin'}`,{method:'POST',headers:{'X-MCP-WebGUI':'1'}});toast(pin?'Pinned':'Unpinned');await loadCache()}
 async function removeFile(id,pinned){if(!confirm(pinned?'This file is pinned. Delete it anyway?':'Delete this cached file?'))return;await api(`/api/cache/${id}?force=${pinned?'true':'false'}`,{method:'DELETE',headers:{'X-MCP-WebGUI':'1'}});toast('Deleted');await loadCache()}
 async function copyId(id){await navigator.clipboard.writeText(id);toast('file_id copied')}
-async function loadActivity(){const term=document.getElementById('activityTool').value;const source=document.getElementById('activitySource').value;const status=document.getElementById('activityStatus').value;const qs=new URLSearchParams({limit:'300',source,status});if(term)qs.set('method',term);const j=await api('/api/audit?'+qs);document.getElementById('auditStats').textContent=j.enabled?`${j.count} events · ${j.retention_days}d / ${j.max_rows} max`:'Audit disabled';const rows=j.events||[];document.getElementById('activityTable').innerHTML=rows.length?`<table><thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Status</th><th>Duration</th><th>Details</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtTime(r.timestamp_epoch)}</td><td>${esc(r.source)}</td><td><b>${esc(r.tool||r.method)}</b><br><span class="muted">${esc(r.method)}</span></td><td class="${r.status==='success'?'ok':'err'}">${esc(r.status)}</td><td>${r.duration_ms==null?'':r.duration_ms.toFixed(1)+' ms'}</td><td><details><summary>View</summary><pre>${esc(JSON.stringify({arguments:r.arguments,result:r.result,error:r.error},null,2))}</pre></details></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No activity</div>'}
+function activityParams(){const term=document.getElementById('activityTool').value;const source=document.getElementById('activitySource').value;const status=document.getElementById('activityStatus').value;const qs=new URLSearchParams({source,status});if(term)qs.set('query',term);return qs}
+function downloadActivity(){const qs=activityParams();window.location.assign('/api/audit.txt?'+qs)}
+async function loadActivity(){const qs=activityParams();qs.set('limit','300');const j=await api('/api/audit?'+qs);document.getElementById('auditStats').textContent=j.enabled?`${j.count} events · ${j.retention_days}d / ${j.max_rows} max`:'Audit disabled';const rows=j.events||[];document.getElementById('activityTable').innerHTML=rows.length?`<table><thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Status</th><th>Duration</th><th>Details</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtTime(r.timestamp_epoch)}</td><td>${esc(r.source)}</td><td><b>${esc(r.tool||r.method)}</b><br><span class="muted">${esc(r.method)}</span></td><td class="${r.status==='success'?'ok':'err'}">${esc(r.status)}</td><td>${r.duration_ms==null?'':r.duration_ms.toFixed(1)+' ms'}</td><td><details><summary>View</summary><pre>${esc(JSON.stringify({arguments:r.arguments,result:r.result,error:r.error},null,2))}</pre></details></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No activity</div>'}
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active');if(b.dataset.tab==='activity')loadActivity()});
 document.getElementById('cacheSearch').oninput=renderCache;
+document.getElementById('activityTool').onkeydown=e=>{if(e.key==='Enter')loadActivity()};
 document.getElementById('upload').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{toast('Uploading…');await api('/api/cache/upload?filename='+encodeURIComponent(f.name),{method:'PUT',headers:{'X-MCP-WebGUI':'1','Content-Type':f.type||'application/octet-stream'},body:f});toast('Upload complete');await loadCache()}catch(err){toast(err.message)}finally{e.target.value=''}};
 api('/api/status').then(j=>document.getElementById('version').textContent=`v${j.app_version} · ${j.source_ref||''}`);loadCache().catch(e=>toast(e.message));
 </script></body></html>"""
@@ -262,20 +266,75 @@ def create_webgui_routes(
         audit.record(source="webgui", method="cache.unpin", status="success", arguments={"file_id": file_id})
         return JSONResponse({"ok": True, **result})
 
+    def audit_filters(request: Request) -> dict[str, str]:
+        q = request.query_params
+        return {
+            "source": q.get("source", ""),
+            "status": q.get("status", ""),
+            "tool": q.get("tool", ""),
+            "method": q.get("method", ""),
+            "query": q.get("query", ""),
+        }
+
     async def api_audit(request: Request) -> JSONResponse:
         q = request.query_params
         try:
             data = audit.list_events(
                 limit=int(q.get("limit", "200")),
                 offset=int(q.get("offset", "0")),
-                source=q.get("source", ""),
-                status=q.get("status", ""),
-                tool=q.get("tool", ""),
-                method=q.get("method", ""),
+                **audit_filters(request),
             )
         except ValueError:
             return _json_error("Invalid pagination")
         return JSONResponse(data)
+
+    async def api_audit_txt(request: Request) -> StreamingResponse:
+        filters = audit_filters(request)
+        summary = audit.list_events(limit=1, **filters)
+        generated = datetime.now(timezone.utc)
+        filename = f"mcp-video-gen-activity-{generated.strftime('%Y%m%d-%H%M%SZ')}.txt"
+
+        def stream():
+            active_filters = {key: value for key, value in filters.items() if value}
+            yield "MCP Video Gen activity export\n"
+            yield f"Version: {app_version} · {source_ref}\n"
+            yield f"Generated UTC: {generated.isoformat().replace('+00:00', 'Z')}\n"
+            yield f"Events: {summary.get('count', 0)}\n"
+            yield f"Filters: {json.dumps(active_filters, ensure_ascii=False) if active_filters else 'none'}\n"
+            yield "Security: values are exported from the sanitized audit store; secrets, signed-URL query strings and long binary/base64 payloads are not intentionally persisted.\n"
+            yield "Order: newest first\n\n"
+            if not summary.get("enabled"):
+                yield "Audit disabled.\n"
+                return
+            for event in audit.iter_events(**filters):
+                timestamp = datetime.fromtimestamp(float(event["timestamp_epoch"]), timezone.utc)
+                timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
+                duration = event.get("duration_ms")
+                duration_text = "" if duration is None else f"{float(duration):.3f} ms"
+                yield "=" * 88 + "\n"
+                yield f"Event ID: {event['id']}\n"
+                yield f"Time UTC: {timestamp_text}\n"
+                yield f"Timestamp epoch: {event['timestamp_epoch']}\n"
+                yield f"Source: {event['source']}\n"
+                yield f"Action: {event.get('tool') or event['method']}\n"
+                yield f"Method: {event['method']}\n"
+                yield f"Status: {event['status']}\n"
+                yield f"Duration: {duration_text}\n"
+                yield "Arguments:\n"
+                yield json.dumps(event.get("arguments"), ensure_ascii=False, indent=2) + "\n"
+                yield "Result:\n"
+                yield json.dumps(event.get("result"), ensure_ascii=False, indent=2) + "\n"
+                yield "Error:\n"
+                yield (event.get("error") or "null") + "\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     return [
         Route("/", index, methods=["GET"]),
@@ -286,4 +345,5 @@ def create_webgui_routes(
         Route("/api/cache/{file_id}/pin", api_pin, methods=["POST"]),
         Route("/api/cache/{file_id}/unpin", api_unpin, methods=["POST"]),
         Route("/api/audit", api_audit, methods=["GET"]),
+        Route("/api/audit.txt", api_audit_txt, methods=["GET"]),
     ]
