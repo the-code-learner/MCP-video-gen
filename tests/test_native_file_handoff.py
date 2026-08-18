@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from mcp.types import ResourceLink
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.testclient import TestClient
 
+from video_mcp import server
 from video_mcp.native_handoff import register_native_file_handoff
 
 
@@ -71,3 +75,25 @@ def test_resource_link_falls_back_to_mcp_resource_without_public_url(tmp_path):
     assert link.name == "scene.glb"
     assert link.mime_type in {"model/gltf-binary", "application/octet-stream"}
     assert link.size == 3
+
+
+def test_http_file_route_supports_range_requests(tmp_path, monkeypatch):
+    file_id = "c" * 32
+    payload = b"0123456789abcdef"
+    path = tmp_path / f"{file_id}__clip.mp4"
+    path.write_bytes(payload)
+
+    monkeypatch.setattr(server, "cached", lambda requested: path if requested == file_id else (_ for _ in ()).throw(ValueError()))
+    app = Starlette(routes=[Route("/files/{file_id}", server.download, methods=["GET", "HEAD"])])
+
+    with TestClient(app) as client:
+        head = client.head(f"/files/{file_id}")
+        assert head.status_code == 200
+        assert head.headers["content-length"] == str(len(payload))
+        assert head.headers["accept-ranges"] == "bytes"
+        assert "clip.mp4" in head.headers["content-disposition"]
+
+        partial = client.get(f"/files/{file_id}", headers={"Range": "bytes=4-9"})
+        assert partial.status_code == 206
+        assert partial.content == payload[4:10]
+        assert partial.headers["content-range"] == f"bytes 4-9/{len(payload)}"
