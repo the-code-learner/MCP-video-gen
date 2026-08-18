@@ -70,6 +70,12 @@ hyperframes browser ensure
 
 /bin/sh "$APP_DIR/scripts/prepare_media_tools.sh"
 
+RNNOISE_LIB_DIR="$DATA_ROOT/tooling/rnnoise/current/install/usr/local/lib"
+if [ -f "$RNNOISE_LIB_DIR/librnnoise.so.0" ]; then
+  printf '%s\n' "$RNNOISE_LIB_DIR" > /etc/ld.so.conf.d/video-mcp-rnnoise.conf
+  ldconfig
+fi
+
 APP_VERSION="$(cat "$APP_DIR/VERSION" 2>/dev/null || printf 'unknown')"
 export VIDEO_MCP_APP_VERSION="$APP_VERSION"
 export PYTHONPATH="$APP_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
