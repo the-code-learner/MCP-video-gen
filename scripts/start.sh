@@ -3,15 +3,18 @@ set -eu
 
 APP_DIR="${VIDEO_MCP_APP_DIR:-/opt/video-mcp/current}"
 VENV_DIR="${VIDEO_MCP_VENV_DIR:-/opt/venv}"
+DATA_ROOT="${VIDEO_MCP_DATA_ROOT:-/data}"
 REQ_FILE="$APP_DIR/requirements.txt"
 REQ_HASH_FILE="$VENV_DIR/.requirements.sha256"
-SYSTEM_MARKER="/opt/video-mcp-system-deps-v1"
+SYSTEM_MARKER="/opt/video-mcp-system-deps-v2"
 
 if [ ! -f "$SYSTEM_MARKER" ]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
     ffmpeg ca-certificates curl unzip \
+    cmake build-essential pkg-config \
+    aubio-tools librnnoise0 \
     libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 \
     libxcomposite1 libxdamage1 libxrandr2 libcups2 libasound2 \
     libpangocairo-1.0-0 libxshmfence1 libgtk-3-0 \
@@ -45,21 +48,27 @@ if [ ! -x "$VENV_DIR/bin/python" ] || [ "$CURRENT_HASH" != "$OLD_HASH" ]; then
 fi
 
 mkdir -p \
-  /data/exports \
-  /data/tmp \
-  /data/hyperframes/projects \
-  /data/hyperframes-home
+  "$DATA_ROOT/exports" \
+  "$DATA_ROOT/tmp" \
+  "$DATA_ROOT/hyperframes/projects" \
+  "$DATA_ROOT/hyperframes-home" \
+  "$DATA_ROOT/timelines" \
+  "$DATA_ROOT/models" \
+  "$DATA_ROOT/tooling" \
+  "$DATA_ROOT/piper/voices"
 
 HF_SPEC="${HYPERFRAMES_NPM_SPEC:-hyperframes@0.7.111}"
-HF_MARKER="/data/.hyperframes-installed-spec"
+HF_MARKER="$DATA_ROOT/.hyperframes-installed-spec"
 if ! command -v hyperframes >/dev/null 2>&1 || [ "$(cat "$HF_MARKER" 2>/dev/null || true)" != "$HF_SPEC" ]; then
   npm install --global --omit=dev --omit=optional "$HF_SPEC"
   printf '%s\n' "$HF_SPEC" > "$HF_MARKER"
 fi
 
-HOME="${HOME:-/data/hyperframes-home}" \
+HOME="${HOME:-$DATA_ROOT/hyperframes-home}" \
 HYPERFRAMES_SKIP_SKILLS=1 \
 hyperframes browser ensure
+
+/bin/sh "$APP_DIR/scripts/prepare_media_tools.sh"
 
 APP_VERSION="$(cat "$APP_DIR/VERSION" 2>/dev/null || printf 'unknown')"
 export VIDEO_MCP_APP_VERSION="$APP_VERSION"
@@ -67,6 +76,6 @@ export PYTHONPATH="$APP_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 RUN_UID="${MCP_RUN_UID:-65534}"
 RUN_GID="${MCP_RUN_GID:-65534}"
-chown -R "$RUN_UID:$RUN_GID" /data "$VENV_DIR"
+chown -R "$RUN_UID:$RUN_GID" "$DATA_ROOT" "$VENV_DIR"
 
-exec "$VENV_DIR/bin/python" -m video_mcp.server
+exec "$VENV_DIR/bin/python" -m video_mcp.entrypoint
