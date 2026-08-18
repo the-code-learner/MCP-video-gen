@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.4.2] - 2026-08-18
+
+### Fixed
+
+- Escaped inline bootstrap shell variables as `$$...` so Docker Compose passes them through to `/bin/sh` instead of interpolating them at Stack-render time.
+- Fixed repeated startup failures such as `mkdir: cannot create directory '': No such file or directory` when Portainer rendered unset shell-local variables inside the `command:` block.
+- Preserved shell PID expansion by encoding `$$` as `$$$$` in the Compose source.
+- Added a regression contract that rejects unescaped dollar signs inside the inline bootstrap command.
+
 ## [2.4.1] - 2026-08-18
 
 ### Added
