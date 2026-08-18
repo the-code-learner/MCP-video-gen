@@ -173,6 +173,8 @@ CI checks Python compilation/import, tests, YAML parsing, shell syntax, Compose 
 
 Application tags/releases are reserved for exact `vX.Y.Z` names so unrelated model or asset releases cannot affect `VIDEO_MCP_VERSION=latest` resolution.
 
-## License
+## License and attribution
 
-MIT. See `LICENSE`.
+Licensed under the **Apache License 2.0**. See `LICENSE`.
+
+Redistributions and derivative works must preserve the attribution notice in `NOTICE` in accordance with the Apache License 2.0.
