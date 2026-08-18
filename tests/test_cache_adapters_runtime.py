@@ -25,12 +25,25 @@ def test_cached_image_uploads_directly_without_base64_or_client_round_trip(tmp_p
     calls = []
 
     async def comfy(method, path, **kwargs):
-        calls.append((method, path, kwargs))
         if method == "GET":
+            calls.append((method, path, kwargs))
             assert path == "object_info"
             return {"LoadImage": {}}
         assert method == "POST"
         assert path == "upload/image"
+        filename, uploaded, content_type = kwargs["files"]["image"]
+        calls.append(
+            (
+                method,
+                path,
+                {
+                    "data": kwargs["data"],
+                    "filename": filename,
+                    "uploaded_bytes": uploaded.read(),
+                    "content_type": content_type,
+                },
+            )
+        )
         return {"name": "render.png", "subfolder": "blender", "type": "input"}
 
     server = SimpleNamespace(
@@ -46,16 +59,46 @@ def test_cached_image_uploads_directly_without_base64_or_client_round_trip(tmp_p
     assert result["ok"] is True
     assert result["status"] == "uploaded"
     assert result["source_file_id"] == "a" * 32
+    assert result["workflow_load_image_value"] == "blender/render.png"
+    assert result["comfyui_input"] == {
+        "name": "render.png",
+        "subfolder": "blender",
+        "type": "input",
+    }
+    assert "do not pass the original URL" in result["next_step"]
 
     assert len(calls) == 2
-    method, path, kwargs = calls[1]
+    method, path, captured = calls[1]
     assert method == "POST"
     assert path == "upload/image"
-    assert kwargs["data"] == {"overwrite": "true", "subfolder": "blender"}
-    filename, uploaded, content_type = kwargs["files"]["image"]
-    assert filename == "render.png"
-    assert uploaded == payload
-    assert content_type == "image/png"
+    assert captured["data"] == {"overwrite": "true", "subfolder": "blender"}
+    assert captured["filename"] == "render.png"
+    assert captured["uploaded_bytes"] == payload
+    assert captured["content_type"] == "image/png"
+
+
+def test_cached_image_adapter_rejects_non_image_file(tmp_path):
+    cached_path = tmp_path / ("c" * 32 + "__clip.mp4")
+    cached_path.write_bytes(b"video")
+    calls = []
+
+    async def comfy(method, path, **kwargs):
+        calls.append((method, path))
+        return {"LoadImage": {}}
+
+    server = SimpleNamespace(
+        comfy=comfy,
+        COMFY_URL="http://host.docker.internal:8188",
+    )
+    mcp = FakeMCP()
+    register_cache_adapters(mcp, server_module=server, cached=lambda _file_id: cached_path)
+
+    result = asyncio.run(mcp.tools["comfy_upload_cached_image"]("c" * 32))
+    assert result["ok"] is False
+    assert result["available"] is True
+    assert result["status"] == "operation_failed"
+    assert "only accepts image files" in result["message"]
+    assert calls == [("GET", "object_info")]
 
 
 def test_cached_image_adapter_soft_fails_when_comfyui_is_unreachable(tmp_path):

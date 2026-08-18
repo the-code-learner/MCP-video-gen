@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.6.0] - 2026-08-18
+
+### Added
+
+- `import_remote_file` for streaming a server-retrievable HTTPS file reference directly into the persistent MCP cache without moving the binary payload through tool JSON/base64.
+- Remote-ingress security checks for HTTPS-only URLs, embedded-credential rejection, public/global DNS resolution, redirect re-validation, byte limits, partial-file cleanup, and optional expected size/SHA-256 validation.
+- Optional `REMOTE_IMPORT_ALLOWED_HOSTS`, `REMOTE_IMPORT_MAX_REDIRECTS`, and `REMOTE_IMPORT_TIMEOUT_SEC` deployment controls.
+- `file_transfer_guide` runtime tool documenting the canonical routes between client, MCP cache, ComfyUI, Blender, HyperFrames, and outbound client delivery.
+- A standard ComfyUI `LoadImage` workflow guard that rejects HTTP(S) URLs, MCP resource URIs, `/files/...` paths, and MCP `file_id` values with instructions for the correct cache -> ComfyUI upload route.
+
+### Changed
+
+- `comfy_upload_cached_image` now keeps the cached image as a file stream during multipart upload and returns `workflow_load_image_value`, the exact value intended for standard `LoadImage.inputs.image`.
+- `comfy_upload_cached_image` explicitly rejects non-image cache artifacts instead of implying a generic audio/video-to-ComfyUI adapter exists.
+- File-handoff documentation now defines routing in every supported direction and explicitly states that URLs/file IDs must not be passed directly to standard ComfyUI `LoadImage`.
+- Native/reference/streaming transfer remains preferred; base64 import/read tools are compatibility fallbacks only.
+
 ## [2.5.0] - 2026-08-18
 
 ### Added

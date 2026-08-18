@@ -10,11 +10,14 @@ The project is designed for **Portainer-only deployments**: the public repositor
 - Scan read-only ComfyUI `models/` and `custom_nodes/` directories when mounted.
 - Inspect compatible custom-node source/documentation files.
 - Submit arbitrary valid ComfyUI API workflow JSON and inspect queue/history/output state.
+- Guard standard ComfyUI `LoadImage` against accidental HTTP URLs, MCP resource URIs, `/files/...` paths and MCP cache `file_id` values.
 - Optionally control host-installed Blender through an authenticated bridge for `bpy` automation, still rendering, animation rendering, and GLB export.
-- Import files from the MCP client/AI into the persistent cache using text, one-shot base64, or chunked compatibility transfer.
+- Import a server-retrievable HTTPS file reference directly into the persistent MCP cache with streaming, SSRF-oriented public-address checks, size limits and optional SHA-256 verification.
+- Retain text, one-shot base64 and chunked base64 upload paths as compatibility fallbacks when a native/retrievable file reference is unavailable.
 - Return cached files as native MCP `ResourceLink` references and authenticated HTTP(S) streams, with MCP resource/base64 paths retained as compatibility fallbacks.
 - Upload inputs, cache outputs, and retrieve generated image, video, audio, 3D, scene, subtitle, and other files through one canonical `file_id` contract.
 - Transfer cached images directly to ComfyUI as multipart binary data without routing file bytes through the AI/client context or converting them to base64.
+- Expose `file_transfer_guide` so an AI can query the canonical file-routing rules at runtime instead of guessing which identifier belongs to which backend.
 - Create and render local HyperFrames projects using HTML/CSS/media.
 - Probe, transcode, concatenate, overlay, mux audio, crop, reverse, loop, speed-ramp, and extract frames with FFmpeg.
 - Detect silence, black/frozen sections, loudness, interlacing, crop regions, keyframes, and objective SSIM/PSNR differences.
@@ -168,7 +171,86 @@ Every generated/imported artifact is normalized into the MCP cache and identifie
 
 The project rule is simple: **do not route binary media through inline/chunked base64 when a native file/resource reference or streaming transfer is available.** Never resize, recompress, transcode, or otherwise alter an artifact solely to make it fit through a tool result.
 
-### MCP -> client / AI — preferred path
+When an AI is uncertain which identifier to pass to which system, it should call:
+
+```text
+file_transfer_guide()
+```
+
+The most important rule is that standard ComfyUI `LoadImage` needs a **ComfyUI input filename**, not a URL, `ResourceLink`, `/files/...` path, or MCP `file_id`.
+
+### Client / AI -> MCP cache — preferred path
+
+If the client exposes a real HTTPS URL that the MCP server itself can retrieve, use:
+
+```text
+import_remote_file(uri, filename="", expected_size_bytes=0, expected_sha256="")
+```
+
+The file is streamed directly to disk and promoted into the MCP cache as a new `file_id`; the binary payload is not placed into the model/tool JSON as base64.
+
+The remote importer requires HTTPS, rejects embedded credentials and non-public DNS results, revalidates redirects, enforces `MAX_UPLOAD_MB` both from `Content-Length` and while streaming, and optionally validates expected size and SHA-256.
+
+Optional hardening for deployments with known file providers:
+
+```text
+REMOTE_IMPORT_ALLOWED_HOSTS=files.example.com,*.storage.example.com
+REMOTE_IMPORT_MAX_REDIRECTS=5
+REMOTE_IMPORT_TIMEOUT_SEC=120
+```
+
+An opaque ChatGPT/OpenAI attachment file ID is not automatically retrievable by an arbitrary MCP server. Do not invent a URL. Use `import_remote_file` only when the client actually exposes a server-retrievable HTTPS reference.
+
+Compatibility imports remain:
+
+```text
+cache_text_file
+cache_file_base64
+file_upload_begin
+file_upload_chunk
+file_upload_finish
+file_upload_abort
+```
+
+Chunked uploads can specify expected byte length and SHA-256 before promotion into the persistent cache. The chunking avoids one giant request, but binary chunks are still base64 and are therefore a fallback when a retrievable reference is unavailable.
+
+### MCP cache -> ComfyUI image input
+
+For an image already in the cache, use:
+
+```text
+comfy_upload_cached_image(file_id)
+```
+
+The adapter uploads the original cached bytes directly to ComfyUI `/upload/image` as multipart/form-data. It does not base64-encode the asset and does not send the payload through the model context.
+
+A successful response includes:
+
+```text
+workflow_load_image_value
+```
+
+Use **that exact returned value** in:
+
+```text
+LoadImage.inputs.image
+```
+
+Do not put the original HTTPS URL, MCP `ResourceLink`, `/files/...` path or `file_id` into `LoadImage`. `submit_workflow` explicitly rejects these common mistakes for standard `LoadImage` nodes and returns instructions for the correct cache -> ComfyUI upload route.
+
+There is currently no generic standard cache -> ComfyUI adapter for arbitrary audio/video. Introspect and use a media-specific installed node/API rather than feeding it a made-up URL contract.
+
+### ComfyUI -> MCP cache
+
+After a workflow finishes and its output filename/subfolder/type are known, use:
+
+```text
+cache_output(filename, subfolder, output_type)
+```
+
+The result becomes a normal MCP cache artifact with a new `file_id` and can be consumed server-side by FFmpeg, Blender, HyperFrames and the other tools.
+
+### MCP cache -> client / AI — preferred path
 
 Use:
 
@@ -207,34 +289,19 @@ read_cached_file_chunk_base64
 get_output_inline_base64
 ```
 
-### Client / AI -> MCP
+### MCP cache <-> Blender and HyperFrames
 
-Current generic compatibility imports are:
+Blender MCP tools take cache `file_id` values directly and stream the corresponding files server-side to the host bridge; declared Blender outputs are returned to the MCP cache as new `file_id` values.
 
-```text
-cache_text_file
-cache_file_base64
-file_upload_begin
-file_upload_chunk
-file_upload_finish
-file_upload_abort
-```
-
-Chunked uploads can specify expected byte length and SHA-256 before promotion into the persistent cache. The chunking avoids one giant request, but binary chunks are still base64; a client-native file/resource handoff should be preferred whenever the connected client exposes one the server can actually retrieve.
-
-### Cache -> ComfyUI
-
-For an image already in the cache, use:
+For HyperFrames, use:
 
 ```text
-comfy_upload_cached_image(file_id)
+hyperframes_import_cached_media(project_id, file_id, destination)
 ```
 
-The adapter uploads the original cached bytes directly to ComfyUI `/upload/image` as multipart/form-data. It does not base64-encode the asset and does not send the payload through the model context.
+Do not read an artifact through base64 merely to write it into Blender or HyperFrames.
 
-This means an AI can author a Blender Python script as text, place arbitrary referenced assets into the cache, send those `file_id` values to Blender, receive `.blend`/`.glb`/renders back as new `file_id` values, and then feed image outputs into ComfyUI or the local post-processing stack without a binary client round trip.
-
-See **`docs/FILE_HANDOFF.md`** for the complete transfer hierarchy, resource semantics, authentication notes, and large-file rules.
+See **`docs/FILE_HANDOFF.md`** for the complete routing matrix, resource semantics, authentication notes, security controls and large-file rules.
 
 ## Advanced local media utilities
 
@@ -295,7 +362,7 @@ VIDEO_MCP_FORCE_REFRESH=false
 You can also pin a release:
 
 ```text
-VIDEO_MCP_VERSION=v2.5.0
+VIDEO_MCP_VERSION=v2.6.0
 ```
 
 or a commit SHA:
