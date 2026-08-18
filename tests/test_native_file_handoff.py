@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from mcp.types import ResourceLink
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -53,6 +54,9 @@ def test_resource_link_prefers_https_stream_without_embedding_bytes(tmp_path):
     assert not hasattr(link, "data")
     assert not hasattr(link, "blob")
 
+    mcp_link = asyncio.run(mcp.tools["get_cached_file_resource"](file_id, transport="mcp"))
+    assert str(mcp_link.uri) == f"media://cache/{file_id}"
+
     resource = mcp.resources["media://cache/{file_id}"]
     assert asyncio.run(resource(file_id)) == payload
 
@@ -76,6 +80,9 @@ def test_resource_link_falls_back_to_mcp_resource_without_public_url(tmp_path):
     assert link.mime_type in {"model/gltf-binary", "application/octet-stream"}
     assert link.size == 3
 
+    with pytest.raises(ValueError, match="PUBLIC_BASE_URL"):
+        asyncio.run(mcp.tools["get_cached_file_resource"](file_id, transport="http"))
+
 
 def test_http_file_route_supports_range_requests(tmp_path, monkeypatch):
     file_id = "c" * 32
@@ -83,7 +90,12 @@ def test_http_file_route_supports_range_requests(tmp_path, monkeypatch):
     path = tmp_path / f"{file_id}__clip.mp4"
     path.write_bytes(payload)
 
-    monkeypatch.setattr(server, "cached", lambda requested: path if requested == file_id else (_ for _ in ()).throw(ValueError()))
+    def fake_cached(requested: str):
+        if requested != file_id:
+            raise ValueError("not found")
+        return path
+
+    monkeypatch.setattr(server, "cached", fake_cached)
     app = Starlette(routes=[Route("/files/{file_id}", server.download, methods=["GET", "HEAD"])])
 
     with TestClient(app) as client:
