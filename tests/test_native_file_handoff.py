@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.types import ResourceLink
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -45,7 +46,8 @@ def test_resource_link_prefers_https_stream_without_embedding_bytes(tmp_path):
         public_base_url="https://media.example.test",
     )
 
-    link = asyncio.run(mcp.tools["get_cached_file_resource"](file_id))
+    tool = mcp.tools["get_cached_file_resource"]
+    link = asyncio.run(tool(file_id))
     assert isinstance(link, ResourceLink)
     assert str(link.uri) == f"https://media.example.test/files/{file_id}"
     assert link.name == "frame.png"
@@ -54,7 +56,12 @@ def test_resource_link_prefers_https_stream_without_embedding_bytes(tmp_path):
     assert not hasattr(link, "data")
     assert not hasattr(link, "blob")
 
-    mcp_link = asyncio.run(mcp.tools["get_cached_file_resource"](file_id, transport="mcp"))
+    converted = func_metadata(tool).convert_result(link)
+    assert len(converted.content) == 1
+    assert isinstance(converted.content[0], ResourceLink)
+    assert str(converted.content[0].uri) == f"https://media.example.test/files/{file_id}"
+
+    mcp_link = asyncio.run(tool(file_id, transport="mcp"))
     assert str(mcp_link.uri) == f"media://cache/{file_id}"
 
     resource = mcp.resources["media://cache/{file_id}"]
