@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.4.3] - 2026-08-18
+
+### Fixed
+
+- Corrected the checksum pin for the official Silero VAD v6.2.1 `silero_vad.onnx` asset to `1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3`.
+- Added backward compatibility for already-deployed v2.4.2 Portainer stacks that still pass the previous incorrect default checksum; the compatibility applies only to the exact official v6.2.1 model URL and does not weaken verification for custom URLs or custom pins.
+- Prevented the resulting checksum mismatch from causing an endless container restart loop after an otherwise successful first-start dependency/HyperFrames bootstrap.
+
 ## [2.4.2] - 2026-08-18
 
 ### Fixed
