@@ -109,9 +109,9 @@ No real domain, audience, tunnel token, internal IP, or credential belongs in th
 
 ## Advanced local media utilities
 
-The v2.3 runtime prepares several small local utilities in addition to FFmpeg/HyperFrames. The Python venv contains PySceneDetect, OpenTimelineIO, pysubs2, ONNX Runtime, NumPy, and headless OpenCV. Debian packages provide aubio and RNNoise.
+The v2.3 runtime prepares several small local utilities in addition to FFmpeg/HyperFrames. The Python venv contains PySceneDetect, OpenTimelineIO, pysubs2, ONNX Runtime, NumPy, and headless OpenCV. Debian provides the small `aubio-tools` CLI package. RNNoise and whisper.cpp are built locally from pinned upstream source into the persistent data volume.
 
-Silero VAD and whisper.cpp assets are stored under the persistent data volume. Downloads use explicit SHA-256 validation. The default Whisper model is a small quantized model intended for lightweight local transcription; both model URL/hash and whisper.cpp ref can be overridden through Stack variables.
+Silero VAD, RNNoise, and whisper.cpp model/source artifacts are stored under the persistent data volume. The RNNoise source and model plus the Silero/Whisper model downloads use explicit SHA-256 validation. The default Whisper model is a small quantized model intended for lightweight local transcription; model URLs/hashes and source refs can be overridden through Stack variables.
 
 Relevant variables include:
 
@@ -119,6 +119,13 @@ Relevant variables include:
 SILERO_VAD_ENABLED=true
 SILERO_VAD_MODEL_URL=<public model URL>
 SILERO_VAD_MODEL_SHA256=<expected sha256>
+
+RNNOISE_ENABLED=true
+RNNOISE_REF=<pinned upstream commit>
+RNNOISE_SOURCE_URL=<public source archive URL>
+RNNOISE_SOURCE_SHA256=<expected sha256>
+RNNOISE_MODEL_URL=<public model URL>
+RNNOISE_MODEL_SHA256=<expected sha256>
 
 WHISPER_CPP_ENABLED=true
 WHISPER_CPP_REF=v1.8.6
@@ -129,7 +136,7 @@ WHISPER_MODEL_URL=<public model URL>
 WHISPER_MODEL_SHA256=<expected sha256>
 ```
 
-The first startup after enabling these utilities can take longer because whisper.cpp is built locally and the selected model is downloaded. The build and model remain in `/data`, so normal container recreation does not repeat that work when the persistent volume is retained.
+The first startup after enabling these utilities can take longer because RNNoise and whisper.cpp are built locally and the selected assets are downloaded. Their resulting builds and models remain in `/data`, so normal container recreation does not repeat those builds when the persistent volume is retained. The Stack gives the first startup an extended healthcheck grace period for this reason.
 
 ### Optional Piper TTS
 
@@ -196,7 +203,7 @@ Source archives are downloaded from GitHub codeload into a staging directory and
 
 A release receives `.mcp-source-ready` only after extraction and runtime-contract checks succeed. `/current` is switched only after that point, so an interrupted or malformed update cannot replace the last-known-good source.
 
-The ComfyUI model and custom-node filesystem mounts are read-only. AI utility model downloads use temporary files and SHA-256 verification before replacing a cached model.
+The ComfyUI model and custom-node filesystem mounts are read-only. AI utility source/model downloads use temporary files and SHA-256 verification before replacing cached artifacts.
 
 ## HyperFrames
 
