@@ -57,8 +57,8 @@ def _fixture(tmp_path: Path, monkeypatch):
         retention_manager=manager,
         audit=audit,
         max_upload_mb=1,
-        app_version="2.8.0",
-        source_ref="v2.8.0",
+        app_version="2.8.2",
+        source_ref="v2.8.2",
     )
     return TestClient(Starlette(routes=routes)), manager, audit
 
@@ -69,6 +69,7 @@ def test_webgui_root_and_streamed_cache_upload(tmp_path, monkeypatch):
     assert root.status_code == 200
     assert "MCP Video Gen" in root.text
     assert "Activity" in root.text
+    assert "Download TXT" in root.text
 
     denied = client.put("/api/cache/upload?filename=clip.mp4", content=b"video")
     assert denied.status_code == 403
@@ -112,13 +113,53 @@ def test_webgui_pin_and_delete_requires_explicit_force(tmp_path, monkeypatch):
     assert client.get("/api/cache").json()["files"] == []
 
 
-def test_webgui_activity_endpoint_filters(tmp_path, monkeypatch):
+def test_webgui_activity_endpoint_filters_tool_or_method(tmp_path, monkeypatch):
     client, _, audit = _fixture(tmp_path, monkeypatch)
     audit.record(source="mcp", method="tools/call", tool="submit_workflow", status="success")
     audit.record(source="mcp", method="tools/call", tool="media_probe", status="error", error="boom")
+    audit.record(source="webgui", method="cache.upload", status="success")
 
-    response = client.get("/api/audit?source=mcp&status=error")
+    response = client.get("/api/audit?source=mcp&status=error&query=media_probe")
     assert response.status_code == 200
     body = response.json()
     assert body["count"] == 1
     assert body["events"][0]["tool"] == "media_probe"
+
+    method_response = client.get("/api/audit?query=cache.upload").json()
+    assert method_response["count"] == 1
+    assert method_response["events"][0]["method"] == "cache.upload"
+
+
+def test_webgui_activity_txt_export_is_filtered_download_and_remains_sanitized(tmp_path, monkeypatch):
+    client, _, audit = _fixture(tmp_path, monkeypatch)
+    audit.record(
+        source="mcp",
+        method="tools/call",
+        tool="file_upload_chunk",
+        status="success",
+        duration_ms=0.3,
+        arguments={
+            "upload_id": "a" * 32,
+            "data_base64": "A" * 8000,
+            "api_key": "must-not-appear",
+        },
+        result={"next_offset": 6000},
+    )
+    audit.record(source="mcp", method="tools/call", tool="submit_workflow", status="success")
+
+    response = client.get("/api/audit.txt?source=mcp&query=file_upload_chunk")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "attachment;" in response.headers["content-disposition"]
+    assert ".txt" in response.headers["content-disposition"]
+
+    text = response.text
+    assert "MCP Video Gen activity export" in text
+    assert "Version: 2.8.2 · v2.8.2" in text
+    assert "Events: 1" in text
+    assert "file_upload_chunk" in text
+    assert "submit_workflow" not in text
+    assert "must-not-appear" not in text
+    assert '"api_key": "<redacted>"' in text
+    assert "<redacted-binary-like-string length=8000>" in text
+    assert "0.300 ms" in text

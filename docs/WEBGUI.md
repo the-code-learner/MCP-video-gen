@@ -1,6 +1,6 @@
 # WebGUI and activity audit
 
-MCP Video Gen v2.8.0 includes a lightweight same-process WebGUI at `/`.
+MCP Video Gen v2.8.0+ includes a lightweight same-process WebGUI at `/`.
 It does not require a separate frontend container, Node build, database service,
 or additional public port.
 
@@ -29,6 +29,27 @@ The Activity tab uses a bounded SQLite database at:
 The MCP SDK server middleware records inbound MCP methods, including `tools/call`,
 plus tool name, status, duration and bounded argument/result summaries. WebGUI cache
 mutations are written into the same activity stream with `source=webgui`.
+
+The tool/method search box matches either the MCP tool name or the protocol/WebGUI
+method. Source and status filters can be combined with the search term.
+
+### Download TXT
+
+The Activity tab includes **Download TXT**. It exports all retained events matching
+the filters currently selected in the UI, not only the first 300 rows rendered in
+the browser. The read-only endpoint is:
+
+```text
+GET /api/audit.txt?source=...&status=...&query=...
+```
+
+The response is streamed as `text/plain` with an attachment filename such as
+`mcp-video-gen-activity-20260819-005700Z.txt`. Entries are newest-first and include
+UTC time, event id, source, action/tool, method, status, duration, arguments, result
+summary and error text.
+
+The TXT export reads the already-sanitized audit store. It does not intentionally
+restore or expose values that were redacted before persistence.
 
 Audit sanitization intentionally:
 
@@ -64,5 +85,8 @@ routes. `/health` keeps its existing special-case behavior.
 State-changing dashboard calls additionally require the `X-MCP-WebGUI: 1` custom
 header. The project does not enable cross-origin browser access, so a normal cross-site
 HTML form cannot perform upload/pin/unpin/delete operations.
+
+Activity JSON/TXT reads are non-mutating and remain behind the same outer HTTP
+authentication boundary as the rest of the WebGUI.
 
 Do not expose the WebGUI on a separate unauthenticated origin merely for convenience.
