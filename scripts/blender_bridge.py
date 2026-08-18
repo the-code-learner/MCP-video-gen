@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +33,7 @@ MAX_INPUT_MB = int(os.getenv("BLENDER_BRIDGE_MAX_INPUT_MB", "512"))
 MAX_SCRIPT_CHARS = int(os.getenv("BLENDER_BRIDGE_MAX_SCRIPT_CHARS", "500000"))
 MAX_TIMEOUT = int(os.getenv("BLENDER_BRIDGE_MAX_TIMEOUT_SEC", "7200"))
 LOG_CHARS = int(os.getenv("BLENDER_BRIDGE_MAX_LOG_CHARS", "30000"))
+JOB_TTL_SEC = int(os.getenv("BLENDER_BRIDGE_JOB_TTL_SEC", "86400"))
 
 
 def safe_relative(value: str) -> Path:
@@ -48,6 +50,19 @@ def job_dir(job_id: str) -> Path:
     if not path.is_relative_to((ROOT / "jobs").resolve()):
         raise ValueError("invalid job path")
     return path
+
+
+def cleanup_old_jobs() -> None:
+    jobs = ROOT / "jobs"
+    if JOB_TTL_SEC <= 0 or not jobs.is_dir():
+        return
+    cutoff = time.time() - JOB_TTL_SEC
+    for path in jobs.iterdir():
+        try:
+            if path.is_dir() and path.stat().st_mtime < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def json_bytes(payload: object) -> bytes:
@@ -168,7 +183,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
 
         parts = [p for p in path.split("/") if p]
-        if len(parts) >= 6 and parts[:2] == ["v1", "jobs"] and parts[3] == "outputs":
+        if len(parts) >= 5 and parts[:2] == ["v1", "jobs"] and parts[3] == "outputs":
             # /v1/jobs/<id>/outputs/<relative/path>
             job_id = parts[2]
             relative = safe_relative("/".join(parts[4:]))
@@ -203,6 +218,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         try:
             if path == "/v1/jobs":
+                cleanup_old_jobs()
                 payload = self._read_json(max_bytes=2 * 1024 * 1024)
                 script = str(payload.get("script", ""))
                 if not script or len(script) > MAX_SCRIPT_CHARS:
