@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.8.2] - 2026-08-19
+
+### Added
+
+- Activity-tab **Download TXT** export for all retained events matching the currently selected tool/method, source and status filters.
+- Read-only `/api/audit.txt` streaming endpoint with attachment filenames, UTC timestamps, event ids, action/method, status, duration, sanitized arguments/result summaries and error text.
+
+### Changed
+
+- The Activity search box now correctly matches either tool name or method instead of only the method field.
+- Audit TXT export uses stable newest-first keyset iteration so new events arriving during a download do not shift offset pagination.
+- TXT exports read only the already-sanitized audit store and preserve the existing secret, signed-URL and binary/base64 redaction guarantees.
+
 ## [2.8.1] - 2026-08-19
 
 ### Changed
