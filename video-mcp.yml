@@ -52,6 +52,15 @@ services:
       SILERO_VAD_MODEL_URL: "${SILERO_VAD_MODEL_URL:-https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad.onnx}"
       SILERO_VAD_MODEL_SHA256: "${SILERO_VAD_MODEL_SHA256:-2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f}"
 
+      RNNOISE_ENABLED: "${RNNOISE_ENABLED:-true}"
+      RNNOISE_REF: "${RNNOISE_REF:-372f7b4b76cde4ca1ec4605353dd17898a99de38}"
+      RNNOISE_SOURCE_URL: "${RNNOISE_SOURCE_URL:-https://github.com/xiph/rnnoise/archive/372f7b4b76cde4ca1ec4605353dd17898a99de38.tar.gz}"
+      RNNOISE_SOURCE_SHA256: "${RNNOISE_SOURCE_SHA256:-40ff1568af151959933699fcbf2db3ee3c62fa9559557dbf61a65e7a12cd335d}"
+      RNNOISE_MODEL_VERSION: "${RNNOISE_MODEL_VERSION:-0b50c45}"
+      RNNOISE_MODEL_URL: "${RNNOISE_MODEL_URL:-https://media.xiph.org/rnnoise/models/rnnoise_data-0b50c45.tar.gz}"
+      RNNOISE_MODEL_SHA256: "${RNNOISE_MODEL_SHA256:-4ac81c5c0884ec4bd5907026aaae16209b7b76cd9d7f71af582094a2f98f4b43}"
+      RNNOISE_BUILD_JOBS: "${RNNOISE_BUILD_JOBS:-2}"
+
       WHISPER_CPP_ENABLED: "${WHISPER_CPP_ENABLED:-true}"
       WHISPER_CPP_REF: "${WHISPER_CPP_REF:-v1.8.6}"
       WHISPER_CPP_BUILD_JOBS: "${WHISPER_CPP_BUILD_JOBS:-2}"
@@ -113,7 +122,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 300s
+      start_period: 900s
 
     command:
       - /bin/sh
