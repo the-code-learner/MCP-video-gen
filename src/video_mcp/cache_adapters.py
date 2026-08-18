@@ -13,25 +13,20 @@ def register_cache_adapters(
 ) -> None:
     """Register zero-client-round-trip adapters between the shared cache and backends."""
 
-    @mcp.tool()
-    async def comfy_upload_cached_image(
+    async def _stage_cached_file(
         file_id: str,
-        overwrite: bool = False,
-        subfolder: str = "",
+        *,
+        overwrite: bool,
+        subfolder: str,
     ) -> dict[str, Any]:
-        """Put one MCP-cached image into ComfyUI /input using multipart binary upload.
+        """Stage any cached file into ComfyUI's input namespace.
 
-        This is the canonical cache -> ComfyUI image route. Pass an MCP `file_id`,
-        never an HTTP(S) URL, ResourceLink, `/files/...` path or base64 payload.
-        The cached file is streamed server-side as multipart/form-data directly to
-        ComfyUI `/upload/image`; the bytes never route through the AI/client.
-
-        After success, use the returned `workflow_load_image_value` as the value
-        of standard ComfyUI `LoadImage.inputs.image`. Do NOT use the original URL
-        or MCP file_id inside LoadImage.
-
-        If ComfyUI is absent/unreachable, the tool returns a structured
-        availability result rather than an MCP tool error.
+        ComfyUI's current `/upload/image` implementation is the stable upload
+        endpoint and writes the received multipart file into the selected
+        input/output/temp directory without decoding it as an image. Video Gen
+        therefore uses it as a transport-level staging primitive for arbitrary
+        cached media. Whether a particular audio/video/custom node accepts the
+        resulting filename is node-specific and must be verified separately.
         """
         try:
             await server_module.comfy("GET", "object_info", timeout=5)
@@ -48,29 +43,19 @@ def register_cache_adapters(
         source = cached(file_id)
         filename = source.name.split("__", 1)[-1]
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        if not content_type.startswith("image/"):
-            return {
-                "ok": False,
-                "available": True,
-                "backend": "comfyui",
-                "status": "operation_failed",
-                "message": (
-                    "comfy_upload_cached_image only accepts image files. There is no generic "
-                    "cache->ComfyUI audio/video adapter; use a media-specific installed node/API."
-                ),
-                "endpoint": server_module.COMFY_URL,
-                "source_file_id": file_id,
-                "content_type": content_type,
-            }
+        media_kind = content_type.split("/", 1)[0] if "/" in content_type else "other"
+        if media_kind not in {"image", "audio", "video"}:
+            media_kind = "other"
 
         form = {
             "overwrite": "true" if overwrite else "false",
             "subfolder": subfolder,
+            "type": "input",
         }
 
         try:
             # Keep the file handle open for the duration of the multipart request so
-            # large images are not copied into an intermediate base64/string payload.
+            # large media never needs an intermediate base64/string representation.
             with source.open("rb") as handle:
                 result = await server_module.comfy(
                     "POST",
@@ -87,6 +72,8 @@ def register_cache_adapters(
                 "message": str(exc),
                 "endpoint": server_module.COMFY_URL,
                 "source_file_id": file_id,
+                "content_type": content_type,
+                "media_kind": media_kind,
             }
 
         returned_name = filename
@@ -103,21 +90,98 @@ def register_cache_adapters(
             else PurePosixPath(returned_name)
         )
 
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "available": True,
             "backend": "comfyui",
-            "status": "uploaded",
+            "status": "staged",
             "source_file_id": file_id,
+            "content_type": content_type,
+            "media_kind": media_kind,
             "comfyui": result,
             "comfyui_input": {
                 "name": returned_name,
                 "subfolder": returned_subfolder,
                 "type": returned_type,
             },
-            "workflow_load_image_value": workflow_value,
-            "next_step": (
-                "Set standard LoadImage.inputs.image to workflow_load_image_value; "
-                "do not pass the original URL or MCP file_id to ComfyUI."
-            ),
+            "workflow_input_value": workflow_value,
         }
+        if media_kind == "image":
+            payload["workflow_load_image_value"] = workflow_value
+            payload["next_step"] = (
+                "For standard LoadImage, set LoadImage.inputs.image to "
+                "workflow_load_image_value. Do not pass the original URL or MCP file_id."
+            )
+        else:
+            payload["next_step"] = (
+                "The file now exists in ComfyUI's input namespace. Before wiring it into "
+                "a workflow, inspect the installed audio/video/custom loader with "
+                "list_loaded_nodes/get_node_definition and use workflow_input_value only "
+                "for a parameter that expects an input-file filename/path."
+            )
+        return payload
+
+    @mcp.tool()
+    async def comfy_upload_cached_media(
+        file_id: str,
+        overwrite: bool = False,
+        subfolder: str = "",
+    ) -> dict[str, Any]:
+        """Stage a cached image, audio, video, or other file into ComfyUI `/input`.
+
+        This is the generic cache -> ComfyUI staging route. The file is streamed
+        server-side as multipart/form-data and never passes through the AI/client
+        as base64. The returned `workflow_input_value` is the ComfyUI input-relative
+        filename/path.
+
+        For images, `workflow_load_image_value` is also returned and can be used
+        directly in standard `LoadImage.inputs.image`. For audio/video/other media,
+        staging does NOT imply that every node accepts the file: inspect the installed
+        loader node with `list_loaded_nodes` and `get_node_definition`, then use
+        `workflow_input_value` only where that node expects an input filename/path.
+        """
+        return await _stage_cached_file(
+            file_id,
+            overwrite=overwrite,
+            subfolder=subfolder,
+        )
+
+    @mcp.tool()
+    async def comfy_upload_cached_image(
+        file_id: str,
+        overwrite: bool = False,
+        subfolder: str = "",
+    ) -> dict[str, Any]:
+        """Backward-compatible image-only cache -> ComfyUI adapter.
+
+        Prefer `comfy_upload_cached_media` for new code. This legacy tool remains
+        available because standard ComfyUI `LoadImage` has a well-defined filename
+        contract. It rejects non-image MIME types and returns
+        `workflow_load_image_value` for `LoadImage.inputs.image`.
+        """
+        source = cached(file_id)
+        filename = source.name.split("__", 1)[-1]
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        if not content_type.startswith("image/"):
+            return {
+                "ok": False,
+                "available": True,
+                "backend": "comfyui",
+                "status": "operation_failed",
+                "message": (
+                    "comfy_upload_cached_image only accepts image files. Use "
+                    "comfy_upload_cached_media(file_id) to stage audio/video/other media, "
+                    "then inspect the installed ComfyUI loader node before wiring the path."
+                ),
+                "endpoint": server_module.COMFY_URL,
+                "source_file_id": file_id,
+                "content_type": content_type,
+            }
+        result = await _stage_cached_file(
+            file_id,
+            overwrite=overwrite,
+            subfolder=subfolder,
+        )
+        if result.get("ok"):
+            result["status"] = "uploaded"
+        return result
