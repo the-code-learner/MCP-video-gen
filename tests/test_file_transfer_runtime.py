@@ -62,13 +62,12 @@ def cache_helpers(root: Path):
     return exports, tmp, target, cached, file_meta
 
 
-def test_chunked_file_transfer_round_trip_with_sha256(tmp_path):
-    exports, tmp, target, cached, file_meta = cache_helpers(tmp_path)
+def test_text_authoring_and_outbound_chunk_read_round_trip(tmp_path):
+    exports, _tmp, target, cached, file_meta = cache_helpers(tmp_path)
     mcp = FakeMCP()
     register_file_transfer_tools(
         mcp,
         exports=exports,
-        tmp=tmp,
         cached=cached,
         target=target,
         file_meta=file_meta,
@@ -76,33 +75,14 @@ def test_chunked_file_transfer_round_trip_with_sha256(tmp_path):
         max_inline_mb=8,
     )
 
-    payload = (b"mcp-file-round-trip-" * 100_000) + bytes(range(256))
-    digest = hashlib.sha256(payload).hexdigest()
+    text = "MCP Video Gen native file routing\n" * 20_000
+    encoded = text.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
 
-    begun = asyncio.run(
-        mcp.tools["file_upload_begin"](
-            "asset.glb",
-            expected_size_bytes=len(payload),
-            expected_sha256=digest,
-        )
-    )
-    upload_id = begun["upload_id"]
-
-    offset = 0
-    for chunk in (payload[:700_000], payload[700_000:1_600_000], payload[1_600_000:]):
-        result = asyncio.run(
-            mcp.tools["file_upload_chunk"](
-                upload_id,
-                offset,
-                base64.b64encode(chunk).decode("ascii"),
-            )
-        )
-        offset = result["next_offset"]
-
-    finished = asyncio.run(mcp.tools["file_upload_finish"](upload_id))
-    assert finished["size_bytes"] == len(payload)
-    assert finished["details"]["sha256"] == digest
-    file_id = finished["file_id"]
+    saved = asyncio.run(mcp.tools["cache_text_file"]("notes.txt", text))
+    assert saved["size_bytes"] == len(encoded)
+    assert saved["details"]["sha256"] == digest
+    file_id = saved["file_id"]
 
     rebuilt = bytearray()
     offset = 0
@@ -119,10 +99,13 @@ def test_chunked_file_transfer_round_trip_with_sha256(tmp_path):
         if part["eof"]:
             break
 
-    assert bytes(rebuilt) == payload
+    assert bytes(rebuilt) == encoded
     assert hashlib.sha256(rebuilt).hexdigest() == digest
     info = asyncio.run(mcp.tools["get_cached_file_info"](file_id))
     assert info["download_path"] == f"/files/{file_id}"
+    assert "cache_file_base64" not in mcp.tools
+    assert "file_upload_begin" not in mcp.tools
+    assert "file_upload_chunk" not in mcp.tools
 
 
 def test_unreachable_comfyui_and_disabled_blender_are_model_readable(tmp_path, monkeypatch):

@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.0.0] - 2026-08-19
+
+### Added
+
+- Native ChatGPT attachment ingress through `save_uploaded_file(file)` and `save_uploaded_files(files)`, both declaring `_meta["openai/fileParams"]` so compatible ChatGPT clients can bind attached files directly to MCP tool parameters.
+- `src/video_mcp/chatgpt_upload.py`, adapted from the proven Postmaster v9.2 native-file pattern but streamed directly to the Video Gen cache for larger media rather than materializing the entire file in memory.
+- HTTPS/public-address validation, redirect re-validation, streaming `MAX_UPLOAD_MB` enforcement, SHA-256 calculation, temporary `.part` staging and bounded timeout/batch configuration for native ChatGPT file downloads.
+- `docs/CHATGPT_FILE_UPLOAD.md` documenting the autonomous ChatGPT attachment path, security model and routing rules.
+
+### Changed
+
+- ChatGPT attachments now follow `attachment -> openai/fileParams -> temporary authorized HTTPS download -> Video Gen cache -> file_id`; the model no longer needs to transport binary bytes through tool JSON.
+- `file_transfer_guide`, server instructions and `build_status` now prefer native ChatGPT file parameters, keep `import_remote_file` for generic retrievable HTTPS sources, and treat WebGUI upload as a manual recovery/admin path.
+- The generic `httpx`/`httpcore` INFO request loggers are suppressed because temporary authorized file URLs and other signed URLs can contain bearer-like query parameters; sanitized application/audit logging remains available.
+- `cache_text_file` remains available for model-authored UTF-8 text, while `read_cached_file_chunk_base64` remains outbound compatibility/debug only.
+
+### Removed
+
+- Breaking change: removed model-mediated binary ingress tools `cache_file_base64`, `file_upload_begin`, `file_upload_status`, `file_upload_chunk_auto`, `file_upload_chunk`, `file_upload_finish` and `file_upload_abort`.
+- Removed the obsolete `docs/PROGRAMMATIC_UPLOAD.md` guide and PTC upload guidance. Programmatic Tool Calling is no longer needed for the normal ChatGPT attachment path.
+
+### Security
+
+- Native ChatGPT downloads accept only HTTPS on port 443, reject URL credentials and non-public DNS results, revalidate every redirect, enforce byte limits both from `Content-Length` and while streaming, and never intentionally persist full temporary download URLs or query strings.
+- Partial native downloads are deleted on failure and completed files are promoted to the canonical cache only after successful bounded streaming.
+
 ## [2.8.3] - 2026-08-19
 
 ### Added

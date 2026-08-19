@@ -58,6 +58,16 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
     """Register a safe MCP-visible runtime/build introspection tool."""
 
@@ -74,16 +84,26 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
         remote_allowlist = os.getenv("REMOTE_IMPORT_ALLOWED_HOSTS", "").strip()
         instructions = str(getattr(mcp, "instructions", "") or "")
         lowlevel = getattr(mcp, "_lowlevel_server", None)
+        removed_upload_tools = {
+            "cache_file_base64",
+            "file_upload_begin",
+            "file_upload_status",
+            "file_upload_chunk_auto",
+            "file_upload_chunk",
+            "file_upload_finish",
+            "file_upload_abort",
+        }
 
         features = {
             "native_file_handoff": "get_cached_file_resource" in tool_names,
+            "native_chatgpt_file_upload": all(
+                name in tool_names for name in ("save_uploaded_file", "save_uploaded_files")
+            ),
             "remote_file_ingress": "import_remote_file" in tool_names,
             "file_transfer_guide": "file_transfer_guide" in tool_names,
-            "programmatic_upload_contract": all(
-                name in tool_names
-                for name in ("file_upload_begin", "file_upload_status", "file_upload_chunk_auto", "file_upload_finish")
+            "model_mediated_binary_upload_tools_removed": not any(
+                name in tool_names for name in removed_upload_tools
             ),
-            "programmatic_tool_calling_client_controlled": True,
             "comfy_cache_image_upload": "comfy_upload_cached_image" in tool_names,
             "comfy_cache_media_staging": "comfy_upload_cached_media" in tool_names,
             "workflow_loadimage_guard": "submit_workflow" in tool_names,
@@ -114,6 +134,7 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             "limits": {
                 "max_upload_mb": int(server_module.MAX_UPLOAD_MB),
                 "max_inline_output_mb": int(server_module.MAX_INLINE_MB),
+                "chatgpt_file_max_batch_files": max(1, min(_env_int("CHATGPT_FILE_MAX_BATCH_FILES", 20), 100)),
                 "scan_max_files": int(server_module.SCAN_MAX_FILES),
                 "ffmpeg_timeout_sec": int(server_module.FFMPEG_TIMEOUT),
                 "hyperframes_timeout_sec": int(server_module.HF_TIMEOUT),
@@ -131,7 +152,7 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "enabled": _env_bool("AUDIT_LOG_ENABLED", True),
                 "retention_days": int(os.getenv("AUDIT_RETENTION_DAYS", "30")),
                 "max_rows": int(os.getenv("AUDIT_MAX_ROWS", "20000")),
-                "argument_policy": "sanitized/bounded; secret-like keys and binary-like payloads redacted",
+                "argument_policy": "sanitized/bounded; secret-like keys and signed URL query strings redacted",
             },
             "runtime": {
                 "listen_port": int(server_module.LISTEN_PORT),
@@ -141,16 +162,18 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "remote_import_allowlist_configured": bool(remote_allowlist),
                 "remote_import_max_redirects": int(os.getenv("REMOTE_IMPORT_MAX_REDIRECTS", "5")),
                 "remote_import_timeout_sec": int(os.getenv("REMOTE_IMPORT_TIMEOUT_SEC", "120")),
+                "chatgpt_file_max_redirects": max(1, min(_env_int("CHATGPT_FILE_MAX_REDIRECTS", 5), 10)),
+                "chatgpt_file_timeout_sec": max(1, min(_env_int("CHATGPT_FILE_TIMEOUT_SEC", 300), 1800)),
                 "blender_enabled": _env_bool("BLENDER_ENABLED", False),
                 "models_mount_present": bool(server_module.MODELS.exists()),
                 "custom_nodes_mount_present": bool(server_module.NODES.exists()),
             },
             "routing_rule": (
-                "Use file_transfer_guide for file movement. Prefer import_remote_file or one-shot "
-                "cache_file_base64. If chunking is required, prefer file_upload_chunk_auto; when "
-                "the client supports Programmatic Tool Calling and its program can access source "
-                "bytes, run the whole begin/chunk-auto/finish loop without model turns between "
-                "chunks. PTC remains client-controlled. Use comfy_upload_cached_media(file_id) "
-                "to stage cached media into ComfyUI and reuse the canonical file_id."
+                "For a ChatGPT attachment use save_uploaded_file/save_uploaded_files: the client "
+                "binds openai/fileParams and Video Gen streams the temporary authorized HTTPS "
+                "download directly into its cache. For other retrievable HTTPS sources use "
+                "import_remote_file. Binary base64/chunk upload tools are intentionally absent. "
+                "Then reuse the canonical file_id and stage cached media into ComfyUI with "
+                "comfy_upload_cached_media(file_id)."
             ),
         }
