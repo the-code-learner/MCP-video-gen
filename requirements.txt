@@ -1,5 +1,6 @@
 mcp>=2,<3
 httpx>=0.28,<1
+pydantic>=2,<3
 PyJWT[crypto]>=2.10,<3
 uvicorn>=0.35,<1
 starlette>=0.39,<2
