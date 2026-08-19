@@ -1,14 +1,16 @@
 # Native file handoff and routing
 
-MCP Video Gen keeps `file_id` as the canonical identifier for every cached artifact. Binary payloads should **not** normally be moved through tool-result JSON as base64.
+MCP Video Gen keeps `file_id` as the canonical identifier for every cached artifact. Binary payloads should **not** normally be moved through model/tool JSON as base64.
 
 The preferred transfer order is:
 
-1. native file/resource reference where the client and server can actually use it;
-2. authenticated HTTP(S) streaming;
-3. MCP `resources/read` as a compatibility path;
-4. bounded chunked base64 as a fallback/debug interoperability path;
-5. inline base64 only for small compatibility cases.
+1. ChatGPT native file parameters (`openai/fileParams`) for files attached in ChatGPT;
+2. server-retrievable HTTPS streaming for generic remote files;
+3. native MCP `ResourceLink` / authenticated HTTP streaming for cache -> client delivery;
+4. MCP `resources/read` as a compatibility path;
+5. outbound base64 read tools only for compatibility/debugging.
+
+Model-mediated binary **upload** through Base64/chunk tool calls is intentionally not exposed in v3.0.0.
 
 Never resize, recompress, transcode, or otherwise alter an artifact solely to make it fit through a tool result.
 
@@ -20,20 +22,21 @@ Standard ComfyUI `LoadImage` does **not** accept:
 - an MCP `ResourceLink`;
 - a `media://cache/...` URI;
 - `/files/<file_id>`;
+- a ChatGPT/OpenAI file ID;
 - an MCP cache `file_id`.
 
 It expects a filename/path that already exists in ComfyUI's input namespace.
 
-Therefore the canonical image route is always:
+Therefore the canonical image route is:
 
 ```text
-external/client image
+ChatGPT attachment / external image
         ↓
 MCP cache -> file_id
         ↓
-comfy_upload_cached_image(file_id)
+comfy_upload_cached_media(file_id)
         ↓ multipart/form-data
-ComfyUI /upload/image -> /input
+ComfyUI input namespace
         ↓
 workflow_load_image_value
         ↓
@@ -46,21 +49,74 @@ LoadImage.inputs.image
 
 | From | To | Preferred route | Result / next step |
 |---|---|---|---|
-| Client/ChatGPT retrievable HTTPS file | MCP cache | `import_remote_file(uri)` | returns `file_id` |
-| Client file with no server-retrievable URL | MCP cache | client-supported upload; compatibility fallback is `cache_file_base64` or chunked upload | returns `file_id` |
-| MCP cache image | ComfyUI `/input` | `comfy_upload_cached_image(file_id)` | use returned `workflow_load_image_value` in `LoadImage` |
+| ChatGPT attached file | MCP cache | `save_uploaded_file(file)` / `save_uploaded_files(files)` via `openai/fileParams` | returns `file_id` |
+| Generic retrievable HTTPS file | MCP cache | `import_remote_file(uri)` | returns `file_id` |
+| Model-authored UTF-8 text | MCP cache | `cache_text_file(...)` | returns `file_id` |
+| MCP cache media | ComfyUI input namespace | `comfy_upload_cached_media(file_id)` | use returned `workflow_input_value`; images also get `workflow_load_image_value` |
 | ComfyUI output | MCP cache | `cache_output(...)` | returns `file_id` |
 | MCP cache | Client/ChatGPT | `get_cached_file_resource(file_id)` | `ResourceLink`; HTTP stream preferred when configured |
 | MCP cache | Blender | pass `file_id` to Blender tool/input mapping | bridge streams bytes server-side |
 | Blender | MCP cache | declared Blender outputs | returned automatically as `file_id` values |
 | MCP cache | HyperFrames | `hyperframes_import_cached_media(...)` | media copied into project |
-| MCP cache audio/video | ComfyUI | media-specific installed node/API only | no generic standard adapter yet |
 
 The MCP also exposes `file_transfer_guide()`. Its tool description and structured result repeat these rules so an AI can query the routing policy at runtime.
 
-## Client -> MCP cache: preferred HTTPS reference ingress
+## ChatGPT attachment -> MCP cache
 
-When the client provides a **real HTTPS URL that the MCP server itself is allowed and able to fetch**, use:
+For a file attached directly in ChatGPT, use:
+
+```text
+save_uploaded_file(file)
+```
+
+For a batch:
+
+```text
+save_uploaded_files(files)
+```
+
+These tools declare `_meta["openai/fileParams"]`. A compatible ChatGPT client binds the selected attachment and supplies a temporary authorized object containing:
+
+```text
+download_url
+file_id
+mime_type? 
+file_name?
+```
+
+The model should not construct this object manually when the client can bind an attachment natively.
+
+Video Gen streams the temporary HTTPS URL directly to a `.part` file, enforcing `MAX_UPLOAD_MB` during transfer and computing SHA-256 as bytes arrive. The completed file is then promoted into the normal persistent cache and receives a canonical Video Gen `file_id`.
+
+The attachment bytes never need to become a Base64 argument in model/tool context.
+
+Security behavior:
+
+- HTTPS is required;
+- embedded URL credentials are rejected;
+- only HTTPS port 443 is accepted;
+- DNS is resolved and non-public/private/loopback/link-local/reserved addresses are rejected;
+- every redirect target is revalidated;
+- redirects and timeouts are bounded;
+- `Content-Length` is checked when present;
+- an independent streaming byte limit is enforced even when `Content-Length` is absent or wrong;
+- SHA-256 is computed during streaming;
+- partial files are removed on failure;
+- temporary URL query strings are stripped by the audit sanitizer and the generic `httpx`/`httpcore` INFO request loggers are suppressed to avoid leaking bearer-like signed URLs.
+
+Optional controls:
+
+```text
+CHATGPT_FILE_TIMEOUT_SEC=300
+CHATGPT_FILE_MAX_REDIRECTS=5
+CHATGPT_FILE_MAX_BATCH_FILES=20
+```
+
+See `docs/CHATGPT_FILE_UPLOAD.md` for details.
+
+## Generic HTTPS -> MCP cache
+
+When a non-ChatGPT source provides a **real HTTPS URL that the MCP server itself is allowed and able to fetch**, use:
 
 ```text
 import_remote_file(uri, filename="", expected_size_bytes=0, expected_sha256="")
@@ -89,85 +145,62 @@ REMOTE_IMPORT_MAX_REDIRECTS=5
 REMOTE_IMPORT_TIMEOUT_SEC=120
 ```
 
-If `REMOTE_IMPORT_ALLOWED_HOSTS` is empty, any host that resolves only to public/global addresses is eligible. An allowlist is recommended when the deployment uses known file providers.
+If `REMOTE_IMPORT_ALLOWED_HOSTS` is empty, any host that resolves only to public/global addresses is eligible. An allowlist is recommended when the deployment uses known generic file providers.
 
-### Important limitation
+Do not invent a URL from an opaque ChatGPT/OpenAI file ID or another MCP's proprietary file ID. For a ChatGPT attachment use the native file-param tools. For another MCP/service, use `import_remote_file` only when it actually exposes a retrievable HTTPS reference.
 
-A ChatGPT/OpenAI attachment `file_id` is not automatically a URL that an arbitrary remote MCP server can dereference. Do not invent a URL and do not pass an opaque file ID to ComfyUI.
+## Removed binary client-upload tools
 
-Use `import_remote_file` only when the client exposes an actual server-retrievable HTTPS reference. Otherwise use whatever upload mechanism the client integration supports; the legacy base64/chunked tools remain as interoperability fallbacks.
-
-## Existing compatibility upload tools
-
-The compatibility client -> cache tools remain:
+v3.0.0 removes:
 
 ```text
 cache_file_base64
 file_upload_begin
+file_upload_status
+file_upload_chunk_auto
 file_upload_chunk
 file_upload_finish
 file_upload_abort
 ```
 
-They provide bounds, contiguous offsets and optional SHA-256 validation. Their binary chunks are still base64, so they are not the preferred path when a retrievable native/HTTPS file reference exists.
+They previously transported binary Base64 through tool arguments and could require repeated model-mediated calls. Native ChatGPT file parameters make that path unnecessary for the normal ChatGPT workflow.
 
-## MCP cache -> ComfyUI `/input`
+`cache_text_file` remains because it stores UTF-8 text authored by the model/client rather than transporting an attachment. The WebGUI browser upload remains available as an administrative/recovery path.
 
-For images, use:
+## MCP cache -> ComfyUI input namespace
+
+Use the generic staging tool:
 
 ```text
-comfy_upload_cached_image(file_id, overwrite=false, subfolder="")
+comfy_upload_cached_media(file_id, overwrite=false, subfolder="")
 ```
 
-This function:
+This function resolves `file_id` inside the MCP cache and uploads the original cached bytes server-side to ComfyUI's input namespace as multipart data. It returns:
 
-1. resolves `file_id` inside the MCP cache;
-2. verifies that the cached file is an image according to its MIME type;
-3. opens the cached file server-side;
-4. submits it to ComfyUI `/upload/image` as multipart binary data;
-5. returns the actual ComfyUI input metadata;
-6. returns `workflow_load_image_value` for the next workflow.
-
-Example result shape:
-
-```json
-{
-  "ok": true,
-  "status": "uploaded",
-  "source_file_id": "...",
-  "comfyui_input": {
-    "name": "reference.png",
-    "subfolder": "references",
-    "type": "input"
-  },
-  "workflow_load_image_value": "references/reference.png"
-}
+```text
+workflow_input_value
 ```
 
-Then use:
+For images it also returns:
 
-```json
-{
-  "class_type": "LoadImage",
-  "inputs": {
-    "image": "references/reference.png"
-  }
-}
+```text
+workflow_load_image_value
 ```
 
-Never substitute the original URL, `file_id`, ResourceLink, or `/files/...` path for that value.
+Use the latter in standard `LoadImage.inputs.image`.
+
+The older `comfy_upload_cached_image` remains as a backward-compatible image-only alias.
 
 ### Audio/video into ComfyUI
 
-There is currently no generic standard MCP adapter that can place arbitrary audio/video into every ComfyUI custom node's expected input contract. Do not work around that by inserting an HTTP URL into an unrelated node.
+Staging is generic, but loader semantics are node-specific. After `comfy_upload_cached_media(file_id)`, inspect the actual installed consumer node with:
 
-Instead:
+```text
+list_loaded_nodes
+get_node_definition
+```
 
-- introspect the installed node that is meant to consume the media;
-- use its documented API/input mechanism if it explicitly supports URLs or uploads;
-- or add a dedicated server-side cache adapter for that media type.
-
-The existence of a cached `file_id` does not by itself make the file a valid input for every ComfyUI node.
+Use `workflow_input_value` only for a parameter that truly expects an input filename/path. Do not work around unknown loader semantics by inserting an HTTP URL into an unrelated node.
 
 ## ComfyUI -> MCP cache
 
@@ -211,7 +244,7 @@ media://cache/{file_id}
 
 A client can use `resources/read` as a compatibility mechanism. This is **not** the preferred path for large binary files: MCP binary resource contents are represented as a base64 blob on the wire.
 
-Existing fallback tools:
+Existing outbound fallback tools:
 
 ```text
 get_cached_file_info
@@ -247,4 +280,4 @@ If a client cannot use the authenticated HTTP URI, `media://cache/{file_id}` + M
 
 There is deliberately no artificial output-size limit imposed by inline JSON/base64 on the preferred outbound path. Effective limits still come from the client, reverse proxy, filesystem, HTTP stack and deployment policy.
 
-Inbound remote imports remain bounded by `MAX_UPLOAD_MB` because the server must protect its cache and disk. Increase that deployment setting deliberately for larger trusted imports rather than bypassing it through base64 or an unvalidated downloader.
+Inbound native ChatGPT downloads and generic remote imports remain bounded by `MAX_UPLOAD_MB` because the server must protect its cache and disk. Increase that deployment setting deliberately for larger trusted media rather than bypassing it through an unvalidated downloader.
