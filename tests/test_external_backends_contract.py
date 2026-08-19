@@ -7,6 +7,7 @@ def test_entrypoint_registers_optional_backends_and_file_transfer():
     source = (ROOT / "src" / "video_mcp" / "entrypoint.py").read_text()
     assert "register_external_backend_tools" in source
     assert "register_file_transfer_tools" in source
+    assert "register_chatgpt_upload_tools" in source
 
 
 def test_external_tools_include_soft_availability_and_blender_primitives():
@@ -27,21 +28,36 @@ def test_external_tools_include_soft_availability_and_blender_primitives():
     assert '"submit_workflow"' in source
 
 
-def test_generic_file_transport_is_bidirectional_and_chunked():
-    source = (ROOT / "src" / "video_mcp" / "file_transfer.py").read_text()
+def test_file_transport_uses_native_chatgpt_ingress_and_reference_first_handoff():
+    native = (ROOT / "src" / "video_mcp" / "chatgpt_upload.py").read_text()
+    assert "class OpenAIFile" in native
+    assert '"openai/fileParams": ["file"]' in native
+    assert '"openai/fileParams": ["files"]' in native
+    assert "def save_uploaded_file(" in native
+    assert "def save_uploaded_files(" in native
+    assert "download_openai_file_to_path" in native
+    assert "hashlib.sha256" in native
+
+    transfer = (ROOT / "src" / "video_mcp" / "file_transfer.py").read_text()
     for name in (
-        "cache_file_base64",
         "cache_text_file",
-        "file_upload_begin",
-        "file_upload_chunk",
-        "file_upload_finish",
-        "file_upload_abort",
         "get_cached_file_info",
         "read_cached_file_chunk_base64",
     ):
-        assert f"def {name}(" in source
-    assert "expected_sha256" in source
-    assert "hashlib.sha256" in source
+        assert f"def {name}(" in transfer
+    for removed in (
+        "cache_file_base64",
+        "file_upload_begin",
+        "file_upload_status",
+        "file_upload_chunk_auto",
+        "file_upload_chunk",
+        "file_upload_finish",
+        "file_upload_abort",
+    ):
+        assert f"def {removed}(" not in transfer
+
+    ingress = (ROOT / "src" / "video_mcp" / "file_ingress.py").read_text()
+    assert "def import_remote_file(" in ingress
     server = (ROOT / "src" / "video_mcp" / "server.py").read_text()
     assert 'Route("/files/{file_id}"' in server
 
