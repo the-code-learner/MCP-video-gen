@@ -11,6 +11,7 @@ from .audit import AuditLog, install_mcp_audit_middleware
 from .build_status import register_build_status_tool
 from .cache_adapters import register_cache_adapters
 from .cache_retention import register_cache_retention_tools
+from .chatgpt_upload import register_chatgpt_upload_tools
 from .external_backends import register_external_backend_tools
 from .file_ingress import install_comfy_workflow_input_guard, register_file_ingress_tools
 from .file_transfer import register_file_transfer_tools
@@ -29,7 +30,6 @@ install_mcp_audit_middleware(server.mcp, audit_log)
 register_file_transfer_tools(
     server.mcp,
     exports=server.EXPORTS,
-    tmp=server.TMP,
     cached=server.cached,
     target=server.target,
     file_meta=server.file_meta,
@@ -41,6 +41,17 @@ register_native_file_handoff(
     server.mcp,
     cached=server.cached,
     public_base_url=server.PUBLIC_BASE_URL,
+)
+
+# ChatGPT-native attachment ingress. The client binds attached files to the
+# openai/fileParams fields and supplies temporary authorized download objects;
+# the MCP streams those bytes directly to its persistent cache.
+register_chatgpt_upload_tools(
+    server.mcp,
+    tmp=server.TMP,
+    target=server.target,
+    file_meta=server.file_meta,
+    max_upload_mb=server.MAX_UPLOAD_MB,
 )
 
 register_file_ingress_tools(
@@ -83,7 +94,8 @@ register_cache_adapters(
     cached=server.cached,
 )
 
-# Replace the v2.6-era guide now that generic cache->ComfyUI staging exists.
+# Replace the older guide now that generic cache->ComfyUI staging and native
+# ChatGPT file-param ingress are available.
 replace_file_transfer_guide(server.mcp)
 
 # Retention is fully opt-in. Register the tools unconditionally so clients can
