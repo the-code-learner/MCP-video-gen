@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import shutil
@@ -30,8 +31,10 @@ def register_file_transfer_tools(
     1. Prefer `import_remote_file(uri)` when a real server-retrievable HTTPS URL exists.
     2. If the complete file is already available as base64 and fits one tool call,
        prefer one `cache_file_base64(...)` call, especially for small files.
-    3. Use `file_upload_begin/chunk/finish` only when one-shot transfer is not
-       practical. When chunking, use large chunks rather than many KB-sized calls.
+    3. Use chunked upload only when one-shot transfer is not practical. If the client
+       supports Programmatic Tool Calling (PTC), run the complete deterministic
+       begin -> chunk loop -> finish stage programmatically without returning to the
+       language model between chunks.
     4. Prefer `get_cached_file_resource`/HTTP streaming for cache -> client delivery.
 
     Files imported here become normal cache entries usable by ComfyUI, Blender,
@@ -57,6 +60,19 @@ def register_file_transfer_tools(
             raise ValueError("Upload session not found")
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def progress(state: dict[str, Any], current: int) -> dict[str, Any]:
+        expected = int(state.get("expected_size_bytes") or 0)
+        remaining = max(0, expected - current) if expected else None
+        return {
+            "upload_id": state["upload_id"],
+            "filename": state["filename"],
+            "total_received_bytes": current,
+            "expected_size_bytes": expected or None,
+            "remaining_bytes": remaining,
+            "complete_by_size": bool(expected and current == expected),
+            "max_chunk_decoded_bytes": MAX_CHUNK_DECODED_BYTES,
+        }
+
     @mcp.tool()
     async def cache_file_base64(
         filename: str,
@@ -67,24 +83,34 @@ def register_file_transfer_tools(
 
         USE THIS instead of chunked upload when all file bytes/base64 are already
         available and the payload comfortably fits one tool call. This is strongly
-        preferred for small files such as tens or hundreds of KiB: do NOT split a
-        small audio/image/file into many KB-sized `file_upload_chunk` calls.
+        preferred for small files: do NOT split a small audio/image/file into many
+        model-mediated chunk calls.
 
-        Do NOT choose this when the client exposes a real server-retrievable HTTPS
-        URL; use `import_remote_file(uri)` instead because it streams server-side and
-        avoids base64 through the model. The decoded file must remain within
-        MAX_UPLOAD_MB.
+        If the client/tool layer rejects or truncates the one-shot payload, fall back
+        to one chunked session. When Programmatic Tool Calling is available and the
+        program can access the source bytes, perform the whole chunk loop with
+        `file_upload_chunk_auto` inside one programmatic stage rather than returning
+        to the language model between chunks.
 
-        After caching, use the returned local `file_id`. To stage any cached media
-        into ComfyUI, call `comfy_upload_cached_media(file_id)`; for standard
-        LoadImage use the returned `workflow_load_image_value`.
+        Do NOT choose base64 when the client exposes a real server-retrievable HTTPS
+        URL; use `import_remote_file(uri)` instead because it streams server-side.
+
+        After caching, reuse the returned local `file_id`; do not re-encode or
+        re-upload the same unchanged artifact.
         """
         data = base64.b64decode(data_base64, validate=True)
         if len(data) > max_upload_mb * 1024 * 1024:
             raise ValueError("Upload exceeds MAX_UPLOAD_MB; use chunked upload or increase the configured limit")
         file_id, out = target(filename)
         out.write_bytes(data)
-        return file_meta(file_id, out, source, sha256=hashlib.sha256(data).hexdigest())
+        meta = file_meta(file_id, out, source, sha256=hashlib.sha256(data).hexdigest())
+        return {
+            **meta,
+            "transfer_complete": True,
+            "do_not_reencode_or_reupload": True,
+            "next_action": "Reuse this file_id for subsequent Video Gen operations",
+            "comfyui_next_action": "comfy_upload_cached_media(file_id)",
+        }
 
     @mcp.tool()
     async def cache_text_file(
@@ -106,17 +132,18 @@ def register_file_transfer_tools(
         expected_size_bytes: int = 0,
         expected_sha256: str = "",
     ) -> dict[str, Any]:
-        """Begin a chunked base64 upload only when one-shot transfer is impractical.
+        """Begin one chunked upload only when one-shot transfer is impractical.
 
-        Before calling this tool, prefer `import_remote_file(uri)` for a retrievable
-        HTTPS URL. If the complete base64 payload is already available and fits one
-        tool call, prefer `cache_file_base64` instead. In particular, do NOT start a
-        chunked session merely for a small KB-sized file.
+        Prefer `import_remote_file(uri)` for a retrievable HTTPS URL and
+        `cache_file_base64` when the complete payload fits one call. If one-shot was
+        actually rejected/truncated, create ONE chunked session for the unchanged
+        source file; do not repeatedly restart unless validation fails.
 
-        If chunking is genuinely required, send the largest practical decoded chunk.
-        This server accepts up to 4 MiB decoded per `file_upload_chunk`; around 1 MiB
-        decoded per call is a good default when client limits are unknown. Avoid tiny
-        chunks because every chunk is a separate MCP/LLM round trip.
+        PTC: if the client supports Programmatic Tool Calling and its program can
+        access the source bytes, use `file_upload_chunk_auto` in a deterministic
+        loop and then `file_upload_finish`, without a model turn between chunks.
+        `file_upload_chunk_auto` is preferred for PTC because the server owns the
+        offset and rejects malformed chunks atomically before writing them.
         """
         if expected_size_bytes < 0:
             raise ValueError("expected_size_bytes must be >= 0")
@@ -148,10 +175,132 @@ def register_file_transfer_tools(
             "max_upload_bytes": limit,
             "max_chunk_decoded_bytes": MAX_CHUNK_DECODED_BYTES,
             "recommended_next_chunk_bytes": recommended,
+            "preferred_chunk_tool": "file_upload_chunk_auto",
+            "programmatic_tool_calling": {
+                "recommended_when_supported": True,
+                "bounded_stage": "file_upload_begin -> repeated file_upload_chunk_auto -> file_upload_finish",
+                "no_model_turn_between_chunks": True,
+                "status_tool": "file_upload_status",
+            },
             "transfer_guidance": (
-                "Use the largest practical chunk. If the whole file is already available "
-                "and fits one tool call, abort this session and use cache_file_base64 instead. "
-                "Do not send many KB-sized chunks unless the client imposes that limit."
+                "Use one session and the largest practical chunks. Prefer file_upload_chunk_auto so "
+                "the server owns offsets and validates each chunk before append. If PTC is available, "
+                "run the complete chunk loop programmatically without returning to the model."
+            ),
+        }
+
+    @mcp.tool()
+    async def file_upload_status(upload_id: str) -> dict[str, Any]:
+        """Return authoritative server-side progress for an active chunked upload.
+
+        This is safe to call from a Programmatic Tool Calling loop for recovery or
+        validation. The server's current `.part` size is the source of truth; the
+        client does not need to maintain or calculate offsets itself.
+        """
+        state = read_state(upload_id)
+        part = part_path(upload_id)
+        return {
+            **progress(state, part.stat().st_size),
+            "expected_sha256": state.get("expected_sha256") or None,
+            "preferred_chunk_tool": "file_upload_chunk_auto",
+        }
+
+    @mcp.tool()
+    async def file_upload_chunk_auto(
+        upload_id: str,
+        data_base64: str,
+        expected_decoded_bytes: int = 0,
+    ) -> dict[str, Any]:
+        """Atomically append the next chunk; the SERVER owns the offset.
+
+        This is the preferred chunk tool for deterministic/programmatic upload loops.
+        Do not calculate or send an offset. Optionally set `expected_decoded_bytes`
+        to the exact raw-byte length the client intended for this chunk. The server
+        decodes and validates the complete chunk BEFORE writing anything.
+
+        On invalid base64, decoded-size mismatch, per-chunk limit violation, or a
+        chunk that would exceed expected_size_bytes, the result has `accepted=false`
+        and `file_unchanged=true`; retry the same source chunk or abort. A rejected
+        chunk never advances server progress.
+
+        When PTC is available, repeatedly call this tool from the same program and
+        stop when `complete_by_size=true`, then call `file_upload_finish(upload_id)`.
+        Do not return to the language model between successful chunks.
+        """
+        state = read_state(upload_id)
+        part = part_path(upload_id)
+        current = part.stat().st_size
+        before = progress(state, current)
+        if expected_decoded_bytes < 0:
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "expected_decoded_bytes_must_be_nonnegative",
+                "next_action": "retry_same_chunk",
+            }
+        try:
+            data = base64.b64decode(data_base64, validate=True)
+        except (binascii.Error, ValueError):
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "invalid_base64",
+                "next_action": "retry_same_chunk",
+            }
+        decoded = len(data)
+        if expected_decoded_bytes and decoded != expected_decoded_bytes:
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "decoded_size_mismatch",
+                "decoded_bytes": decoded,
+                "expected_decoded_bytes": expected_decoded_bytes,
+                "next_action": "retry_same_chunk",
+            }
+        if decoded > MAX_CHUNK_DECODED_BYTES:
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "chunk_exceeds_max_decoded_bytes",
+                "decoded_bytes": decoded,
+                "next_action": "retry_with_smaller_chunk",
+            }
+        if current + decoded > max_upload_mb * 1024 * 1024:
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "upload_exceeds_max_upload_bytes",
+                "decoded_bytes": decoded,
+                "next_action": "abort_upload",
+            }
+        expected = int(state.get("expected_size_bytes") or 0)
+        if expected and current + decoded > expected:
+            return {
+                **before,
+                "accepted": False,
+                "file_unchanged": True,
+                "reason": "chunk_would_exceed_expected_size",
+                "decoded_bytes": decoded,
+                "next_action": "retry_same_chunk_with_correct_source_range",
+            }
+        with part.open("ab") as handle:
+            handle.write(data)
+        after = progress(state, current + decoded)
+        return {
+            **after,
+            "accepted": True,
+            "file_unchanged": False,
+            "received_bytes": decoded,
+            "expected_decoded_bytes": expected_decoded_bytes or None,
+            "next_action": (
+                "file_upload_finish(upload_id)"
+                if after["complete_by_size"]
+                else "send_next_chunk_with_file_upload_chunk_auto"
             ),
         }
 
@@ -161,16 +310,16 @@ def register_file_transfer_tools(
         offset_bytes: int,
         data_base64: str,
     ) -> dict[str, Any]:
-        """Append one contiguous chunk to an existing compatibility upload.
+        """Append one contiguous chunk using an explicit compatibility offset.
 
-        IMPORTANT FOR AI CLIENTS: each call is a full MCP/LLM round trip. Use the
-        largest practical chunk and never intentionally drip-feed a small file in
-        KB-sized pieces. Maximum decoded chunk size is 4 MiB. Around 1 MiB is a
-        reasonable default; if the remaining file is <= 4 MiB and the bytes are
-        available, send the entire remainder in one call.
+        Prefer `file_upload_chunk_auto` for new clients and Programmatic Tool Calling:
+        it removes offset arithmetic from the model/client and validates a chunk
+        atomically before append. Keep this explicit-offset tool only for compatibility
+        with clients that already implement the older protocol.
 
         `offset_bytes` MUST equal the `next_offset` returned by the previous call.
-        After the final bytes are uploaded, call `file_upload_finish(upload_id)`.
+        Maximum decoded chunk size is 4 MiB. After the final bytes are uploaded, call
+        `file_upload_finish(upload_id)`.
         """
         state = read_state(upload_id)
         part = part_path(upload_id)
@@ -207,11 +356,7 @@ def register_file_transfer_tools(
             "next_action": (
                 "file_upload_finish(upload_id)"
                 if remaining == 0
-                else "send one large contiguous file_upload_chunk at next_offset"
-            ),
-            "transfer_guidance": (
-                "Do not use tiny chunks. If remaining_bytes is <= 4 MiB and you have "
-                "the bytes, send the whole remainder in one call."
+                else "prefer file_upload_chunk_auto for the next chunk"
             ),
         }
 
@@ -219,10 +364,11 @@ def register_file_transfer_tools(
     async def file_upload_finish(upload_id: str) -> dict[str, Any]:
         """Validate and promote a completed chunked upload into the persistent cache.
 
-        Call this immediately after the final chunk. If `expected_size_bytes` was
-        supplied to `file_upload_begin`, finish succeeds only when that exact byte
-        count has arrived. The returned `file_id` is the canonical local identifier
-        for all later Video Gen operations.
+        Call this immediately after the final accepted chunk. If
+        `expected_size_bytes` was supplied to `file_upload_begin`, finish succeeds
+        only when that exact byte count has arrived. If expected SHA-256 was supplied,
+        it must match exactly. The returned `file_id` is then canonical and should be
+        reused without re-encoding/re-uploading the unchanged artifact.
         """
         state = read_state(upload_id)
         part = part_path(upload_id)
@@ -244,7 +390,14 @@ def register_file_transfer_tools(
         file_id, out = target(str(state["filename"]))
         shutil.move(str(part), str(out))
         state_path(upload_id).unlink(missing_ok=True)
-        return file_meta(file_id, out, "mcp-client", sha256=actual_sha, chunked_upload=True)
+        meta = file_meta(file_id, out, "mcp-client", sha256=actual_sha, chunked_upload=True)
+        return {
+            **meta,
+            "transfer_complete": True,
+            "do_not_reencode_or_reupload": True,
+            "next_action": "Reuse this file_id for subsequent Video Gen operations",
+            "comfyui_next_action": "comfy_upload_cached_media(file_id)",
+        }
 
     @mcp.tool()
     async def file_upload_abort(upload_id: str) -> dict[str, Any]:
