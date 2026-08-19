@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.0.1] - 2026-08-19
+
+### Fixed
+
+- Fixed v3.0.0 startup on the production `node:22-bookworm-slim` runtime, whose Debian Python is 3.11: native ChatGPT file parameters now use `typing_extensions.TypedDict`/`NotRequired`, as required by Pydantic on Python versions below 3.12.
+- Declared `typing-extensions` as an explicit runtime dependency instead of relying on it only as a transitive MCP/Pydantic dependency.
+- CI now runs the complete import/test/safety/YAML/Compose suite on both Python 3.11 and 3.12 so the Portainer runtime version cannot diverge silently from the CI interpreter again.
+
 ## [3.0.0] - 2026-08-19
 
 ### Added
