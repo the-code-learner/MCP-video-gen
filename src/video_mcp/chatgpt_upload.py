@@ -12,11 +12,12 @@ import socket
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, NotRequired, TypedDict
+from typing import Any, Callable
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 from pydantic import ConfigDict
+from typing_extensions import NotRequired, TypedDict
 
 
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
