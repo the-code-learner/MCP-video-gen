@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [2.8.3] - 2026-08-19
+
+### Added
+
+- `file_upload_chunk_auto(upload_id, data_base64, expected_decoded_bytes=0)` as the preferred chunk uploader for new clients: the server owns the offset and validates each complete decoded chunk before appending it.
+- `file_upload_status(upload_id)` for authoritative server-side progress/recovery during direct or programmatic upload loops.
+- PTC-friendly upload contract in `file_upload_begin`, `file_transfer_guide`, server instructions and `build_status`, including the bounded `begin -> chunk_auto loop -> finish` stage.
+- `docs/PROGRAMMATIC_UPLOAD.md` describing Programmatic Tool Calling requirements, limitations, result fields and a deterministic client-side orchestration contract.
+
+### Changed
+
+- Chunk validation failures in `file_upload_chunk_auto` are atomic: invalid base64, decoded-size mismatches, size-limit violations and expected-size overruns return `accepted=false` with `file_unchanged=true`; rejected chunks do not advance progress.
+- The legacy explicit-offset `file_upload_chunk` remains available for backward compatibility, while new/Programmatic Tool Calling clients are directed to `file_upload_chunk_auto`.
+- Successful one-shot/chunked imports now explicitly tell clients to reuse the returned canonical `file_id` and not re-encode/re-upload the same unchanged artifact.
+- Server guidance now states that Programmatic Tool Calling is client/API-controlled: the MCP can expose a PTC-friendly deterministic contract but cannot activate PTC or make client-local attachment bytes available by itself.
+
 ## [2.8.2] - 2026-08-19
 
 ### Added

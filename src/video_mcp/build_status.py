@@ -79,6 +79,11 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             "native_file_handoff": "get_cached_file_resource" in tool_names,
             "remote_file_ingress": "import_remote_file" in tool_names,
             "file_transfer_guide": "file_transfer_guide" in tool_names,
+            "programmatic_upload_contract": all(
+                name in tool_names
+                for name in ("file_upload_begin", "file_upload_status", "file_upload_chunk_auto", "file_upload_finish")
+            ),
+            "programmatic_tool_calling_client_controlled": True,
             "comfy_cache_image_upload": "comfy_upload_cached_image" in tool_names,
             "comfy_cache_media_staging": "comfy_upload_cached_media" in tool_names,
             "workflow_loadimage_guard": "submit_workflow" in tool_names,
@@ -141,10 +146,11 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "custom_nodes_mount_present": bool(server_module.NODES.exists()),
             },
             "routing_rule": (
-                "Use file_transfer_guide for file movement. Cache/import external media first. "
-                "Use comfy_upload_cached_media(file_id) to stage cached media into ComfyUI. "
-                "For standard LoadImage, use the returned workflow_load_image_value; for "
-                "audio/video/custom loaders, inspect the installed node definition and only "
-                "use workflow_input_value where that node expects an input filename/path."
+                "Use file_transfer_guide for file movement. Prefer import_remote_file or one-shot "
+                "cache_file_base64. If chunking is required, prefer file_upload_chunk_auto; when "
+                "the client supports Programmatic Tool Calling and its program can access source "
+                "bytes, run the whole begin/chunk-auto/finish loop without model turns between "
+                "chunks. PTC remains client-controlled. Use comfy_upload_cached_media(file_id) "
+                "to stage cached media into ComfyUI and reuse the canonical file_id."
             ),
         }

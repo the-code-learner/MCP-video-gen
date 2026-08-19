@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
+import hashlib
 import uuid
 from pathlib import Path
 
@@ -62,7 +62,7 @@ def _register_transfer_tools(tmp_path: Path) -> FakeMCP:
     return mcp
 
 
-def test_chunk_tools_tell_clients_to_avoid_tiny_round_trips(tmp_path):
+def test_begin_exposes_programmatic_upload_contract(tmp_path):
     mcp = _register_transfer_tools(tmp_path)
     payload = b"a" * 89_458
 
@@ -74,9 +74,124 @@ def test_chunk_tools_tell_clients_to_avoid_tiny_round_trips(tmp_path):
     )
     assert begun["max_chunk_decoded_bytes"] == MAX_CHUNK_DECODED_BYTES
     assert begun["recommended_next_chunk_bytes"] == len(payload)
-    assert "cache_file_base64" in begun["transfer_guidance"]
-    assert "KB-sized" in begun["transfer_guidance"]
+    assert begun["preferred_chunk_tool"] == "file_upload_chunk_auto"
+    assert begun["programmatic_tool_calling"]["recommended_when_supported"] is True
+    assert begun["programmatic_tool_calling"]["no_model_turn_between_chunks"] is True
+    assert begun["programmatic_tool_calling"]["status_tool"] == "file_upload_status"
 
+
+def test_auto_chunk_rejects_decoded_size_mismatch_without_advancing(tmp_path):
+    mcp = _register_transfer_tools(tmp_path)
+    payload = b"0123456789" * 100
+    begun = asyncio.run(
+        mcp.tools["file_upload_begin"](
+            "speech.mp3",
+            expected_size_bytes=len(payload),
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+    )
+
+    rejected = asyncio.run(
+        mcp.tools["file_upload_chunk_auto"](
+            begun["upload_id"],
+            base64.b64encode(payload[:300]).decode("ascii"),
+            expected_decoded_bytes=299,
+        )
+    )
+    assert rejected["accepted"] is False
+    assert rejected["file_unchanged"] is True
+    assert rejected["reason"] == "decoded_size_mismatch"
+    assert rejected["decoded_bytes"] == 300
+    assert rejected["total_received_bytes"] == 0
+
+    status = asyncio.run(mcp.tools["file_upload_status"](begun["upload_id"]))
+    assert status["total_received_bytes"] == 0
+    assert status["remaining_bytes"] == len(payload)
+
+
+def test_auto_chunk_owns_offset_and_finishes_verified_upload(tmp_path):
+    mcp = _register_transfer_tools(tmp_path)
+    payload = bytes(range(256)) * 100
+    digest = hashlib.sha256(payload).hexdigest()
+    begun = asyncio.run(
+        mcp.tools["file_upload_begin"](
+            "reference.bin",
+            expected_size_bytes=len(payload),
+            expected_sha256=digest,
+        )
+    )
+
+    cut = 12_000
+    first = payload[:cut]
+    second = payload[cut:]
+
+    r1 = asyncio.run(
+        mcp.tools["file_upload_chunk_auto"](
+            begun["upload_id"],
+            base64.b64encode(first).decode("ascii"),
+            expected_decoded_bytes=len(first),
+        )
+    )
+    assert r1["accepted"] is True
+    assert r1["received_bytes"] == len(first)
+    assert r1["total_received_bytes"] == len(first)
+    assert r1["complete_by_size"] is False
+
+    r2 = asyncio.run(
+        mcp.tools["file_upload_chunk_auto"](
+            begun["upload_id"],
+            base64.b64encode(second).decode("ascii"),
+            expected_decoded_bytes=len(second),
+        )
+    )
+    assert r2["accepted"] is True
+    assert r2["total_received_bytes"] == len(payload)
+    assert r2["remaining_bytes"] == 0
+    assert r2["complete_by_size"] is True
+    assert r2["next_action"] == "file_upload_finish(upload_id)"
+
+    finished = asyncio.run(mcp.tools["file_upload_finish"](begun["upload_id"]))
+    assert finished["size_bytes"] == len(payload)
+    assert finished["details"]["sha256"] == digest
+    assert finished["transfer_complete"] is True
+    assert finished["do_not_reencode_or_reupload"] is True
+
+
+def test_auto_chunk_rejects_overrun_atomically(tmp_path):
+    mcp = _register_transfer_tools(tmp_path)
+    payload = b"a" * 100
+    begun = asyncio.run(mcp.tools["file_upload_begin"]("tiny.bin", expected_size_bytes=100))
+
+    accepted = asyncio.run(
+        mcp.tools["file_upload_chunk_auto"](
+            begun["upload_id"],
+            base64.b64encode(payload[:90]).decode("ascii"),
+            expected_decoded_bytes=90,
+        )
+    )
+    assert accepted["total_received_bytes"] == 90
+
+    rejected = asyncio.run(
+        mcp.tools["file_upload_chunk_auto"](
+            begun["upload_id"],
+            base64.b64encode(payload[:20]).decode("ascii"),
+            expected_decoded_bytes=20,
+        )
+    )
+    assert rejected["accepted"] is False
+    assert rejected["reason"] == "chunk_would_exceed_expected_size"
+    assert rejected["file_unchanged"] is True
+    assert rejected["total_received_bytes"] == 90
+
+    status = asyncio.run(mcp.tools["file_upload_status"](begun["upload_id"]))
+    assert status["total_received_bytes"] == 90
+    assert status["remaining_bytes"] == 10
+
+
+def test_legacy_explicit_offset_chunk_remains_compatible(tmp_path):
+    mcp = _register_transfer_tools(tmp_path)
+    payload = b"a" * 89_458
+    begun = asyncio.run(mcp.tools["file_upload_begin"]("speech.wav", expected_size_bytes=len(payload)))
     uploaded = asyncio.run(
         mcp.tools["file_upload_chunk"](
             begun["upload_id"],
@@ -89,20 +204,22 @@ def test_chunk_tools_tell_clients_to_avoid_tiny_round_trips(tmp_path):
     assert uploaded["recommended_next_chunk_bytes"] == 0
 
 
-def test_tool_docstrings_explain_one_shot_vs_chunked_selection(tmp_path):
+def test_tool_docstrings_explain_ptc_and_server_owned_offset(tmp_path):
     mcp = _register_transfer_tools(tmp_path)
     one_shot = mcp.tools["cache_file_base64"].__doc__ or ""
     begin = mcp.tools["file_upload_begin"].__doc__ or ""
-    chunk = mcp.tools["file_upload_chunk"].__doc__ or ""
+    auto = mcp.tools["file_upload_chunk_auto"].__doc__ or ""
+    legacy = mcp.tools["file_upload_chunk"].__doc__ or ""
 
     assert "single call" in one_shot
-    assert "small" in one_shot
-    assert "4 MiB" in begin
-    assert "full MCP/LLM round trip" in chunk
-    assert "KB-sized" in chunk
+    assert "Programmatic Tool Calling" in one_shot
+    assert "Programmatic Tool Calling" in begin
+    assert "SERVER owns the offset" in auto
+    assert "accepted=false" in auto
+    assert "Prefer `file_upload_chunk_auto`" in legacy
 
 
-def test_routing_guide_contains_transfer_efficiency_decision_tree():
+def test_routing_guide_contains_ptc_decision_tree():
     mcp = FakeMCP()
     mcp.tools["file_transfer_guide"] = lambda: None
     replace_file_transfer_guide(mcp)
@@ -110,10 +227,15 @@ def test_routing_guide_contains_transfer_efficiency_decision_tree():
     guide = asyncio.run(mcp.tools["file_transfer_guide"]())
     assert guide["client_to_cache_decision"][0]["action"] == "import_remote_file(uri)"
     assert "cache_file_base64" in guide["client_to_cache_decision"][1]["action"]
+    assert "PTC" in guide["client_to_cache_decision"][2]["action"]
     assert guide["chunking"]["max_decoded_bytes_per_call"] == 4 * 1024 * 1024
-    assert "KB-sized" in guide["chunking"]["anti_pattern"]
+    assert guide["chunking"]["preferred_tool"] == "file_upload_chunk_auto"
+    assert guide["chunking"]["server_owned_offset"] is True
+    assert guide["programmatic_tool_calling"]["server_can_enable_ptc"] is False
+    assert guide["programmatic_tool_calling"]["client_must_support_ptc"] is True
 
 
-def test_server_instructions_reject_intentionally_tiny_chunks():
-    assert "never intentionally split a small KB-sized file" in SERVER_INSTRUCTIONS
-    assert "up to 4 MiB decoded per call" in SERVER_INSTRUCTIONS
+def test_server_instructions_define_ptc_upload_stage():
+    assert "Programmatic Tool Calling (PTC) is a CLIENT/API capability" in SERVER_INSTRUCTIONS
+    assert "file_upload_chunk_auto" in SERVER_INSTRUCTIONS
+    assert "Do not return to the language model between successful chunks" in SERVER_INSTRUCTIONS
