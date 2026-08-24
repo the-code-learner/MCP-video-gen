@@ -102,9 +102,7 @@ services:
       WHISPER_CPP_BINARY: "/data/tooling/whisper.cpp/current/build/bin/whisper-cli"
       WHISPER_MODEL_AUTO_DOWNLOAD: "${WHISPER_MODEL_AUTO_DOWNLOAD:-true}"
       WHISPER_MODEL_NAME: "${WHISPER_MODEL_NAME:-tiny-q5_1}"
-      # selected.bin initially contains tiny-q5_1 and becomes a symlink when the
-      # user explicitly selects an optional light/optimal Whisper model.
-      WHISPER_MODEL_PATH: "/data/models/whisper/selected.bin"
+      WHISPER_MODEL_PATH: "/data/models/whisper/ggml-tiny-q5_1.bin"
       WHISPER_MODEL_URL: "${WHISPER_MODEL_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin}"
       WHISPER_MODEL_SHA256: "${WHISPER_MODEL_SHA256:-818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7}"
 
@@ -357,7 +355,7 @@ services:
           }
 
           [ -f "$$STAGING/scripts/start.sh" ] || {
-            echo "scripts/start.sh missing from source" >&2
+            echo "scripts/start.sh missing" >&2
             rm -rf "$$STAGING"
             exit 1
           }
