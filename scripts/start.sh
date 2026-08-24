@@ -47,6 +47,19 @@ if [ ! -x "$VENV_DIR/bin/python" ] || [ "$CURRENT_HASH" != "$OLD_HASH" ]; then
   printf '%s\n' "$CURRENT_HASH" > "$REQ_HASH_FILE"
 fi
 
+# Piper is a small runtime dependency rather than a large optional model. When
+# the deployment does not explicitly set PIPER_ENABLED, default to automatic:
+# enable it only if the pinned runtime is actually importable. Explicit true or
+# false values remain authoritative and require no Compose/YAML change.
+if [ -z "${PIPER_ENABLED+x}" ] || [ -z "${PIPER_ENABLED}" ] || [ "${PIPER_ENABLED}" = "auto" ]; then
+  if "$VENV_DIR/bin/python" -c 'import importlib.metadata, piper; importlib.metadata.version("piper-tts")' >/dev/null 2>&1; then
+    PIPER_ENABLED=true
+  else
+    PIPER_ENABLED=false
+  fi
+  export PIPER_ENABLED
+fi
+
 # All optional AI runtimes/models live under persistent /data. Directories are
 # cheap to create; Qwen/large Whisper model bytes are never downloaded here.
 mkdir -p \
