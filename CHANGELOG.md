@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.1.2] - 2026-08-24
+
+### Fixed
+
+- Kept anonymous Openverse audio searches at a maximum `page_size=20`, including searches with exact duration filters, preventing HTTP 401 responses caused by requesting larger anonymous pages.
+- Duration-filtered music search now scans additional 20-result pages and continues to apply the requested second bounds locally against Openverse millisecond durations.
+- Added regression coverage that forces a duration-filtered search to paginate before finding an in-range result and asserts that no request exceeds the anonymous 20-result page-size ceiling.
+
+### Changed
+
+- No deployment YAML changes are included in v3.1.2.
+
 ## [3.1.1] - 2026-08-24
 
 ### Fixed
@@ -133,7 +145,7 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 
 - Lightweight same-process WebGUI at `/` with Cache and Activity tabs; no separate frontend service or build pipeline is required.
 - Cache browser with previews where supported, search, direct downloads, streamed browser uploads, pin/unpin, explicit deletion, size/retention status and copyable `file_id` values.
-- Persistent bounded SQLite activity audit under `/data/audit/events.sqlite3`, covering inbound MCP messages and WebGUI mutations with tool/method, status, duration and sanitized argument/result summaries.
+- Persistent bounded SQLite activity audit under `/data/audit/events.sqlite3`, covering inbound MCP messages and WebGUI mutations with tool/method, status, duration and sanitized arguments/result summaries.
 - `comfy_upload_cached_media(file_id)` as the generic server-side cache -> ComfyUI input staging tool for images, audio, video and other files. It returns `workflow_input_value`; images additionally return `workflow_load_image_value` for standard `LoadImage`.
 - Runtime replacement of `file_transfer_guide` so audio/video routing reflects generic staging while preserving the rule that custom loader semantics must be introspected.
 - Stronger MCP server identity metadata and instructions so clients are reminded that MCP Video Gen is available for media/ComfyUI/FFmpeg/HyperFrames/Blender/audio tasks.
