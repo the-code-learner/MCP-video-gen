@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.1.3] - 2026-08-24
+
+### Fixed
+
+- Added the pinned `piper-tts==1.6.0` runtime dependency so installed Piper voices can synthesize without a missing Python runtime.
+- `piper_info()` now distinguishes voice installation from runtime health and reports runtime installation/version/spec plus the source of the enabled/disabled state.
+- Piper synthesis now fails with an explicit runtime/enablement diagnostic and removes an incomplete output file if synthesis fails.
+
+### Changed
+
+- When `PIPER_ENABLED` is absent or `auto`, startup enables Piper only after the pinned runtime is successfully importable. Explicit `PIPER_ENABLED=true` or `false` remains authoritative.
+- Piper voices remain separately installed and are never downloaded automatically.
+- No deployment YAML changes are included in v3.1.3.
+
 ## [3.1.2] - 2026-08-24
 
 ### Fixed
@@ -145,7 +159,7 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 
 - Lightweight same-process WebGUI at `/` with Cache and Activity tabs; no separate frontend service or build pipeline is required.
 - Cache browser with previews where supported, search, direct downloads, streamed browser uploads, pin/unpin, explicit deletion, size/retention status and copyable `file_id` values.
-- Persistent bounded SQLite activity audit under `/data/audit/events.sqlite3`, covering inbound MCP messages and WebGUI mutations with tool/method, status, duration and sanitized arguments/result summaries.
+- Persistent bounded SQLite activity audit under `/data/audit/events.sqlite3`, covering inbound MCP messages and WebGUI mutations with tool/method, status, duration and sanitized argument/result summaries.
 - `comfy_upload_cached_media(file_id)` as the generic server-side cache -> ComfyUI input staging tool for images, audio, video and other files. It returns `workflow_input_value`; images additionally return `workflow_load_image_value` for standard `LoadImage`.
 - Runtime replacement of `file_transfer_guide` so audio/video routing reflects generic staging while preserving the rule that custom loader semantics must be introspected.
 - Stronger MCP server identity metadata and instructions so clients are reminded that MCP Video Gen is available for media/ComfyUI/FFmpeg/HyperFrames/Blender/audio tasks.
@@ -200,7 +214,7 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 - `CACHE_CLEANUP_ENABLED=false` by default.
 - `CACHE_RETENTION_DAYS=0` disables age-based deletion.
 - `CACHE_MAX_SIZE_GB=0` disables size-based deletion.
-- `CACHE_CLEANUP_INTERVAL_HOURS=24` controls the automatic maintenance interval when cleanup is enabled.
+- `CACHE_CLEANUP_INTERVAL_HOURS=24` controls the automatic maintenance interval when automatic cleanup is enabled.
 
 ## [2.6.1] - 2026-08-18
 
