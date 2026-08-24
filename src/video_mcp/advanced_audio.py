@@ -102,14 +102,23 @@ def register(mcp:Any,c:MediaContext)->None:
             raw=w/"a.f32";await c.command(["ffmpeg","-y","-i",str(src),"-vn","-ac","1","-ar","16000","-f","f32le",str(raw)],c.ffmpeg_timeout);r=await asyncio.to_thread(vad,raw,min(1,max(.01,threshold)),min_speech_ms,min_silence_ms,speech_pad_ms);return {"file_id":file_id,"segments":r,"model":silero.name}
         finally:shutil.rmtree(w,ignore_errors=True)
 
-    wb=Path(os.getenv("WHISPER_CPP_BINARY",str(c.data_root/"tooling/whisper.cpp/current/build/bin/whisper-cli"))).resolve();wm=Path(os.getenv("WHISPER_MODEL_PATH",str(c.data_root/"models/whisper/ggml-tiny-q5_1.bin"))).resolve()
+    wb=Path(os.getenv("WHISPER_CPP_BINARY",str(c.data_root/"tooling/whisper.cpp/current/build/bin/whisper-cli"))).resolve();configured_wm=Path(os.getenv("WHISPER_MODEL_PATH",str(c.data_root/"models/whisper/ggml-tiny-q5_1.bin"))).resolve();selected_wm=c.data_root/"models/whisper/selected.bin"
+    def whisper_model()->Path:
+        try:
+            if selected_wm.exists() or selected_wm.is_symlink():
+                candidate=selected_wm.resolve()
+                if candidate.is_file():return candidate
+        except OSError:pass
+        return configured_wm
     @mcp.tool()
-    async def whisper_info()->dict[str,Any]:return {"binary":str(wb),"binary_exists":wb.is_file(),"model":str(wm),"model_exists":wm.is_file()}
+    async def whisper_info()->dict[str,Any]:
+        wm=whisper_model();return {"binary":str(wb),"binary_exists":wb.is_file(),"model":str(wm),"model_exists":wm.is_file(),"selected_override":selected_wm.exists() or selected_wm.is_symlink()}
 
     async def wav16(src:Path,dst:Path):await c.command(["ffmpeg","-y","-i",str(src),"-vn","-ar","16000","-ac","1","-c:a","pcm_s16le",str(dst)],c.ffmpeg_timeout)
 
     @mcp.tool()
     async def transcribe(file_id:str,language:str="auto",translate_to_english:bool=False)->dict[str,Any]:
+        wm=whisper_model()
         if not wb.is_file() or not wm.is_file():raise RuntimeError("whisper.cpp binary/model is not prepared")
         src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="wh-",dir=c.tmp))
         try:
@@ -121,6 +130,7 @@ def register(mcp:Any,c:MediaContext)->None:
     @mcp.tool()
     async def transcribe_to_subtitles(file_id:str,language:str="auto",output_format:str="srt",output_filename:str="transcript.srt")->dict[str,Any]:
         if output_format not in {"srt","vtt"}:raise ValueError("output_format must be srt or vtt")
+        wm=whisper_model()
         if not wb.is_file() or not wm.is_file():raise RuntimeError("whisper.cpp binary/model is not prepared")
         src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="whs-",dir=c.tmp))
         try:
