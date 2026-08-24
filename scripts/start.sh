@@ -47,6 +47,31 @@ if [ ! -x "$VENV_DIR/bin/python" ] || [ "$CURRENT_HASH" != "$OLD_HASH" ]; then
   printf '%s\n' "$CURRENT_HASH" > "$REQ_HASH_FILE"
 fi
 
+# A user-approved persistent Piper state takes precedence over the legacy
+# deployment environment default. This lets Piper be enabled/disabled through
+# MCP without requiring a Compose/YAML edit. Without a persistent state, the
+# existing environment behavior remains backward compatible.
+PIPER_STATE_FILE="$DATA_ROOT/piper/runtime-enabled"
+if [ -f "$PIPER_STATE_FILE" ]; then
+  PIPER_STATE="$(tr '[:upper:]' '[:lower:]' < "$PIPER_STATE_FILE" | tr -d '[:space:]')"
+  case "$PIPER_STATE" in
+    1|true|yes|on) PIPER_ENABLED=true ;;
+    0|false|no|off) PIPER_ENABLED=false ;;
+    *) PIPER_ENABLED=false ;;
+  esac
+  export PIPER_ENABLED
+else
+  PIPER_MODE="$(printf '%s' "${PIPER_ENABLED:-auto}" | tr '[:upper:]' '[:lower:]')"
+  if [ -z "$PIPER_MODE" ] || [ "$PIPER_MODE" = "auto" ]; then
+    if "$VENV_DIR/bin/python" -c 'import importlib.metadata, piper; importlib.metadata.version("piper-tts")' >/dev/null 2>&1; then
+      PIPER_ENABLED=true
+    else
+      PIPER_ENABLED=false
+    fi
+    export PIPER_ENABLED
+  fi
+fi
+
 # All optional AI runtimes/models live under persistent /data. Directories are
 # cheap to create; Qwen/large Whisper model bytes are never downloaded here.
 mkdir -p \

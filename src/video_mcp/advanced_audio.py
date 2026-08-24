@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .advanced_common import MediaContext, safe_name
+from .piper_runtime import piper_runtime_status, require_piper_enabled, set_piper_enabled
 
 
 def floats(text:str)->list[float]:
@@ -140,9 +141,16 @@ def register(mcp:Any,c:MediaContext)->None:
         finally:shutil.rmtree(w,ignore_errors=True)
 
     voices=Path(os.getenv("PIPER_VOICES_ROOT",str(c.data_root/"piper/voices"))).resolve()
-    def enabled()->bool:return os.getenv("PIPER_ENABLED","false").lower() in {"1","true","yes","on"}
     @mcp.tool()
-    async def piper_info()->dict[str,Any]:return {"enabled":enabled(),"voices_root":str(voices),"voices":[str(p.relative_to(voices)) for p in sorted(voices.rglob("*.onnx"))[:500]] if voices.is_dir() else []}
+    async def piper_info()->dict[str,Any]:
+        runtime=piper_runtime_status()
+        runtime.update({"voices_root":str(voices),"voices":[str(p.relative_to(voices)) for p in sorted(voices.rglob("*.onnx"))[:500]] if voices.is_dir() else []})
+        return runtime
+
+    @mcp.tool()
+    async def piper_runtime_set_enabled(enabled:bool,confirm:bool=False)->dict[str,Any]:
+        """Persistently enable or disable Piper only after confirm=true. The choice applies immediately and survives restarts without changing deployment YAML."""
+        return set_piper_enabled(enabled,confirm=confirm)
 
     @mcp.tool()
     async def piper_import_voice_file(file_id:str,destination:str)->dict[str,Any]:
@@ -152,7 +160,7 @@ def register(mcp:Any,c:MediaContext)->None:
 
     @mcp.tool()
     async def tts_local(text:str,voice_model:str,output_filename:str="tts.wav",length_scale:float=1)->dict[str,Any]:
-        if not enabled():raise RuntimeError("Piper is disabled")
+        require_piper_enabled()
         model=(voices/voice_model).resolve()
         if not model.is_relative_to(voices) or model.suffix!=".onnx" or not model.is_file():raise ValueError("Invalid voice model")
         oid,out=c.target(safe_name(output_filename,"tts.wav"))
@@ -161,4 +169,9 @@ def register(mcp:Any,c:MediaContext)->None:
             from piper import PiperVoice,SynthesisConfig
             v=PiperVoice.load(str(model));cfg=SynthesisConfig(length_scale=max(.1,min(5,length_scale)))
             with wave.open(str(out),"wb") as f:v.synthesize_wav(text,f,syn_config=cfg)
-        await asyncio.to_thread(synth);return c.file_meta(oid,out,"piper.tts",voice_model=voice_model,length_scale=length_scale)
+        try:
+            await asyncio.to_thread(synth)
+        except Exception:
+            out.unlink(missing_ok=True)
+            raise
+        return c.file_meta(oid,out,"piper.tts",voice_model=voice_model,length_scale=length_scale)

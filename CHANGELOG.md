@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.1.3] - 2026-08-24
+
+### Added
+
+- `piper_runtime_set_enabled(enabled, confirm=true)` persistently enables or disables Piper under `/data/piper/runtime-enabled`, applies the explicit choice to the current MCP process, and restores it after restart without requiring a deployment YAML change.
+
+### Fixed
+
+- Added the pinned `piper-tts==1.6.0` runtime dependency so installed Piper voices can synthesize without a missing Python runtime.
+- `piper_info()` now distinguishes voice installation from runtime health and reports runtime installation/version/spec plus the source and persistent value of the enabled/disabled state.
+- Piper synthesis now fails with an explicit runtime/enablement diagnostic and removes an incomplete output file if synthesis fails.
+
+### Changed
+
+- The historical `PIPER_ENABLED` deployment default remains backward compatible. A user-confirmed persistent Piper state takes precedence and is restored by startup; without persistent state the existing environment behavior is preserved.
+- Piper voices remain separately installed and are never downloaded automatically.
+- No deployment YAML changes are included in v3.1.3.
+
 ## [3.1.2] - 2026-08-24
 
 ### Fixed
