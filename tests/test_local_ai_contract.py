@@ -21,6 +21,7 @@ STACK = ROOT / "video-mcp.yml"
 START = ROOT / "scripts" / "start.sh"
 PREPARE = ROOT / "scripts" / "prepare_media_tools.sh"
 ADVANCED_AUDIO = ROOT / "src" / "video_mcp" / "advanced_audio.py"
+ADVANCED_COMPLETION = ROOT / "src" / "video_mcp" / "advanced_completion.py"
 
 
 def test_every_large_model_family_has_light_and_optimal_and_is_not_preloaded() -> None:
@@ -80,11 +81,16 @@ def test_gpu_is_shared_without_host_pid_or_docker_socket_and_yaml_scope_stays_na
 
 
 def test_whisper_optional_selection_is_runtime_owned_without_yaml_change() -> None:
-    text = ADVANCED_AUDIO.read_text(encoding="utf-8")
-    assert 'selected_wm=c.data_root/"models/whisper/selected.bin"' in text
-    assert "def whisper_model()->Path:" in text
-    assert "candidate=selected_wm.resolve()" in text
-    assert "wm=whisper_model()" in text
+    audio_text = ADVANCED_AUDIO.read_text(encoding="utf-8")
+    assert 'selected_wm=c.data_root/"models/whisper/selected.bin"' in audio_text
+    assert "def whisper_model()->Path:" in audio_text
+    assert "candidate=selected_wm.resolve()" in audio_text
+    assert "wm=whisper_model()" in audio_text
+
+    completion_text = ADVANCED_COMPLETION.read_text(encoding="utf-8")
+    assert 'selected_whisper_model = c.data_root / "models" / "whisper" / "selected.bin"' in completion_text
+    assert "def current_whisper_model() -> Path:" in completion_text
+    assert "whisper_model = current_whisper_model()" in completion_text
 
 
 def test_whisper_bootstrap_and_runtime_selection_are_separate_on_restart() -> None:
