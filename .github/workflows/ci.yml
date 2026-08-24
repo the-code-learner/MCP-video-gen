@@ -86,7 +86,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Create immutable stable release if missing
+      - name: Create or recover immutable stable release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -94,17 +94,44 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git rev-parse "$TAG" >/dev/null 2>&1 || gh release view "$TAG" >/dev/null 2>&1; then
-            echo "$TAG already exists; refusing to mutate an existing release."
+
+          TAG_EXISTS=false
+          RELEASE_EXISTS=false
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            TAG_EXISTS=true
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+          fi
+
+          if [ "$TAG_EXISTS" = true ] && [ "$RELEASE_EXISTS" = true ]; then
+            echo "$TAG already has both tag and published release; leaving immutable release unchanged."
             exit 0
           fi
+
+          if [ "$TAG_EXISTS" = false ] && [ "$RELEASE_EXISTS" = true ]; then
+            echo "Release $TAG exists without a local/fetched tag; refusing automatic mutation." >&2
+            exit 1
+          fi
+
+          if [ "$TAG_EXISTS" = true ]; then
+            TAG_SHA="$(git rev-list -n 1 "$TAG")"
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "Existing tag $TAG points to $TAG_SHA, expected $GITHUB_SHA; refusing to move an immutable tag." >&2
+              exit 1
+            fi
+            echo "Recovering missing GitHub Release from existing tag $TAG at $TAG_SHA."
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 {capture=1; next}
             capture && /^## \[/ {exit}
             capture {print}
           ' CHANGELOG.md > /tmp/release-notes.md
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "$TAG"
+
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file /tmp/release-notes.md \
