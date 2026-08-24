@@ -11,7 +11,7 @@ import httpx
 
 from .download_utils import download_verified
 
-OPENVERSE_AUDIO_ENDPOINT = "https://api.openverse.engineering/v1/audio/"
+OPENVERSE_AUDIO_ENDPOINT = "https://api.openverse.org/v1/audio/"
 COMMERCIAL_LICENSES = {"cc0", "pdm", "by"}
 
 
@@ -92,7 +92,7 @@ async def search_music(
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         for page in range(1, max_pages + 1):
             params: dict[str, str | int] = {
                 "q": query,
