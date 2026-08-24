@@ -132,7 +132,8 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             ),
             "unified_local_tts": "tts_generate" in tool_names,
             "piper_voice_management": all(
-                name in tool_names for name in ("piper_voice_install", "piper_voice_remove")
+                name in tool_names
+                for name in ("piper_voice_catalog", "piper_voice_install", "piper_voice_remove")
             ),
             "openverse_music": all(
                 name in tool_names for name in ("music_search", "music_import")
@@ -212,8 +213,9 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             },
             "routing_rule": (
                 "For a ChatGPT attachment use save_uploaded_file/save_uploaded_files. For other "
-                "retrievable HTTPS sources use import_remote_file. Reuse canonical file_id values. "
-                "Large optional AI models are installed only after recommendation and explicit "
-                "confirmation; cache is never deleted automatically to make room."
+                "retrievable HTTPS sources use import_remote_file. Binary base64/chunk upload tools "
+                "are intentionally absent. Reuse canonical file_id values. Large optional AI models "
+                "are installed only after recommendation and explicit confirmation; cache is never "
+                "deleted automatically to make room."
             ),
         }
