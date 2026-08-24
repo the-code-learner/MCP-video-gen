@@ -85,7 +85,7 @@ Convenience management tools are:
 
 The curated catalog initially exposes Italian `it_IT-paola-medium` and English `en_US-lessac-medium`. Both ONNX artifacts are below 100 MiB and therefore do not need the managed large-model light/optimal pair. The convenience installer is capped at 100 MiB so it cannot be used to bypass the large-artifact policy. Model SHA-256 values are provided by the catalog; per-voice/model-card licensing remains the user's responsibility.
 
-Piper remains disabled by default at deployment level because it is an optional runtime with its own licensing considerations.
+Since v3.1.3 the main Python runtime pins `piper-tts==1.6.0`. When `PIPER_ENABLED` is absent or set to `auto`, startup enables Piper only if that runtime is actually importable. An explicit `PIPER_ENABLED=false` still disables synthesis, while `piper_info()` reports `runtime_installed`, `runtime_version`, `runtime_spec`, `enabled`, and `enabled_source` so runtime health and policy are distinguishable from voice installation state. This behavior requires no `video-mcp.yml` change and does not download any voice automatically.
 
 ## Openverse music
 
