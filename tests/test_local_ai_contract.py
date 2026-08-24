@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STACK = ROOT / "video-mcp.yml"
 START = ROOT / "scripts" / "start.sh"
 PREPARE = ROOT / "scripts" / "prepare_media_tools.sh"
+ADVANCED_AUDIO = ROOT / "src" / "video_mcp" / "advanced_audio.py"
 
 
 def test_every_large_model_family_has_light_and_optimal_and_is_not_preloaded() -> None:
@@ -62,7 +63,7 @@ def test_qwen_hf_models_use_full_commit_pins_and_verify_large_tokenizer() -> Non
     assert QWEN_RUNTIME_ESTIMATE_BYTES >= 8 * 1024 * 1024 * 1024
 
 
-def test_gpu_is_shared_without_host_pid_or_docker_socket() -> None:
+def test_gpu_is_shared_without_host_pid_or_docker_socket_and_yaml_scope_stays_narrow() -> None:
     text = STACK.read_text(encoding="utf-8")
     assert "driver: nvidia" in text
     assert "count: 1" in text
@@ -71,12 +72,19 @@ def test_gpu_is_shared_without_host_pid_or_docker_socket() -> None:
     assert "pid: host" not in text
     assert "/var/run/docker.sock" not in text
     assert "privileged: true" not in text
+    # v3.1 YAML authorization was for shared GPU access only; Whisper selection
+    # remains application-owned and the historical deployment value is preserved.
+    assert 'WHISPER_MODEL_PATH: "/data/models/whisper/ggml-tiny-q5_1.bin"' in text
+    assert 'WHISPER_MODEL_PATH: "/data/models/whisper/selected.bin"' not in text
+    assert 'echo "scripts/start.sh missing" >&2' in text
 
 
-def test_whisper_uses_switchable_selected_path() -> None:
-    text = STACK.read_text(encoding="utf-8")
-    assert 'WHISPER_MODEL_PATH: "/data/models/whisper/selected.bin"' in text
-    assert 'WHISPER_MODEL_NAME: "${WHISPER_MODEL_NAME:-tiny-q5_1}"' in text
+def test_whisper_optional_selection_is_runtime_owned_without_yaml_change() -> None:
+    text = ADVANCED_AUDIO.read_text(encoding="utf-8")
+    assert 'selected_wm=c.data_root/"models/whisper/selected.bin"' in text
+    assert "def whisper_model()->Path:" in text
+    assert "candidate=selected_wm.resolve()" in text
+    assert "wm=whisper_model()" in text
 
 
 def test_whisper_bootstrap_and_runtime_selection_are_separate_on_restart() -> None:
@@ -85,7 +93,6 @@ def test_whisper_bootstrap_and_runtime_selection_are_separate_on_restart() -> No
     assert 'SELECTED_MODEL_PATH="${WHISPER_MODEL_PATH:-$BOOTSTRAP_MODEL_PATH}"' in text
     assert 'download_verified "$MODEL_URL" "$MODEL_SHA" "$BOOTSTRAP_MODEL_PATH"' in text
     assert 'download_verified "$MODEL_URL" "$MODEL_SHA" "$SELECTED_MODEL_PATH"' not in text
-    assert 'if [ ! -e "$SELECTED_MODEL_PATH" ]; then' in text
 
 
 def test_startup_does_not_install_qwen_or_large_models() -> None:
