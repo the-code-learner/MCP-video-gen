@@ -6,13 +6,13 @@ VENV_DIR="${VIDEO_MCP_VENV_DIR:-/opt/venv}"
 DATA_ROOT="${VIDEO_MCP_DATA_ROOT:-/data}"
 REQ_FILE="$APP_DIR/requirements.txt"
 REQ_HASH_FILE="$VENV_DIR/.requirements.sha256"
-SYSTEM_MARKER="/opt/video-mcp-system-deps-v3"
+SYSTEM_MARKER="/opt/video-mcp-system-deps-v4"
 
 if [ ! -f "$SYSTEM_MARKER" ]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
-    ffmpeg ca-certificates curl unzip \
+    ffmpeg sox libsox-fmt-all ca-certificates curl unzip \
     cmake build-essential pkg-config autoconf automake libtool \
     aubio-tools \
     libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 \
@@ -47,6 +47,8 @@ if [ ! -x "$VENV_DIR/bin/python" ] || [ "$CURRENT_HASH" != "$OLD_HASH" ]; then
   printf '%s\n' "$CURRENT_HASH" > "$REQ_HASH_FILE"
 fi
 
+# All optional AI runtimes/models live under persistent /data. Directories are
+# cheap to create; Qwen/large Whisper model bytes are never downloaded here.
 mkdir -p \
   "$DATA_ROOT/exports" \
   "$DATA_ROOT/tmp" \
@@ -54,7 +56,13 @@ mkdir -p \
   "$DATA_ROOT/hyperframes-home" \
   "$DATA_ROOT/timelines" \
   "$DATA_ROOT/models" \
+  "$DATA_ROOT/models/registry" \
+  "$DATA_ROOT/models/whisper" \
   "$DATA_ROOT/tooling" \
+  "$DATA_ROOT/tooling/qwen3-tts" \
+  "$DATA_ROOT/qwen3-tts/models" \
+  "$DATA_ROOT/qwen3-tts/voices" \
+  "$DATA_ROOT/qwen3-tts/hf-cache" \
   "$DATA_ROOT/piper/voices"
 
 HF_SPEC="${HYPERFRAMES_NPM_SPEC:-hyperframes@0.7.111}"

@@ -18,7 +18,6 @@ def _read_source_ref() -> str:
     explicit = os.getenv("VIDEO_MCP_SOURCE_REF", "").strip()
     if explicit:
         return explicit
-
     app_dir = Path(os.getenv("VIDEO_MCP_APP_DIR", "/opt/video-mcp/current"))
     marker = app_dir / ".mcp-source-ready"
     try:
@@ -29,7 +28,6 @@ def _read_source_ref() -> str:
 
 
 def _registered_tool_names(mcp: Any) -> list[str]:
-    """Return registered tool names without making a protocol round trip."""
     manager = getattr(mcp, "_tool_manager", None)
     list_tools = getattr(manager, "list_tools", None)
     if not callable(list_tools):
@@ -69,17 +67,11 @@ def _env_int(name: str, default: int) -> int:
 
 
 def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
-    """Register a safe MCP-visible runtime/build introspection tool."""
+    """Register safe MCP-visible runtime/build introspection."""
 
     @mcp.tool()
     async def build_status() -> dict[str, Any]:
-        """Report the MCP build/version and safe runtime configuration.
-
-        Use this after deploys to verify the exact release seen by the connected
-        MCP client. No tokens, credentials, signed-URL queries or file contents
-        are returned. Dynamic third-party capabilities exposed by ComfyUI custom
-        nodes must still be inspected through node introspection.
-        """
+        """Report build/version, safe runtime configuration and registered v3.1 local-AI/resource capabilities."""
         tool_names = _registered_tool_names(mcp)
         remote_allowlist = os.getenv("REMOTE_IMPORT_ALLOWED_HOSTS", "").strip()
         instructions = str(getattr(mcp, "instructions", "") or "")
@@ -111,6 +103,41 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 name in tool_names
                 for name in ("cache_status", "cache_cleanup", "cache_pin", "cache_unpin")
             ),
+            "storage_resource_telemetry": all(
+                name in tool_names for name in ("storage_info", "runtime_resources")
+            ),
+            "safe_runtime_resource_release": "release_runtime_resources" in tool_names,
+            "approval_gated_cache_reclaim": all(
+                name in tool_names for name in ("cache_reclaim_preview", "cache_reclaim_files")
+            ),
+            "optional_model_registry": all(
+                name in tool_names
+                for name in (
+                    "model_catalog",
+                    "model_recommend",
+                    "model_verify",
+                    "model_install",
+                    "model_select",
+                    "model_remove",
+                )
+            ),
+            "qwen3_tts_voice_cloning": all(
+                name in tool_names
+                for name in (
+                    "qwen_tts_info",
+                    "qwen_tts_synthesize",
+                    "qwen_voice_clone_create",
+                    "qwen_voice_clone_list",
+                )
+            ),
+            "unified_local_tts": "tts_generate" in tool_names,
+            "piper_voice_management": all(
+                name in tool_names
+                for name in ("piper_voice_catalog", "piper_voice_install", "piper_voice_remove")
+            ),
+            "openverse_music": all(
+                name in tool_names for name in ("music_search", "music_import")
+            ),
             "server_instructions_configured": bool(instructions.strip()),
             "server_description_configured": bool(getattr(lowlevel, "description", "") or ""),
             "webgui": _env_bool("WEBGUI_ENABLED", True),
@@ -134,19 +161,22 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
             "limits": {
                 "max_upload_mb": int(server_module.MAX_UPLOAD_MB),
                 "max_inline_output_mb": int(server_module.MAX_INLINE_MB),
-                "chatgpt_file_max_batch_files": max(1, min(_env_int("CHATGPT_FILE_MAX_BATCH_FILES", 20), 100)),
+                "chatgpt_file_max_batch_files": max(
+                    1, min(_env_int("CHATGPT_FILE_MAX_BATCH_FILES", 20), 100)
+                ),
                 "scan_max_files": int(server_module.SCAN_MAX_FILES),
                 "ffmpeg_timeout_sec": int(server_module.FFMPEG_TIMEOUT),
                 "hyperframes_timeout_sec": int(server_module.HF_TIMEOUT),
+                "music_max_download_mb": max(1, _env_int("MUSIC_MAX_DOWNLOAD_MB", 250)),
+                "large_model_threshold_mib": 100,
             },
             "cache_retention": {
                 "cleanup_enabled": _env_bool("CACHE_CLEANUP_ENABLED", False),
                 "retention_days": _env_float("CACHE_RETENTION_DAYS", 0.0),
                 "max_size_gb": _env_float("CACHE_MAX_SIZE_GB", 0.0),
                 "cleanup_interval_hours": _env_float("CACHE_CLEANUP_INTERVAL_HOURS", 24.0),
-                "default_behavior": (
-                    "persistent/no automatic deletion when CACHE_CLEANUP_ENABLED is absent or false"
-                ),
+                "default_behavior": "persistent/no automatic deletion when CACHE_CLEANUP_ENABLED is absent or false",
+                "model_space_reclaim_rule": "preview first; explicit user approval and confirmed file IDs required",
             },
             "activity_audit": {
                 "enabled": _env_bool("AUDIT_LOG_ENABLED", True),
@@ -162,18 +192,30 @@ def register_build_status_tool(mcp: Any, *, server_module: Any) -> None:
                 "remote_import_allowlist_configured": bool(remote_allowlist),
                 "remote_import_max_redirects": int(os.getenv("REMOTE_IMPORT_MAX_REDIRECTS", "5")),
                 "remote_import_timeout_sec": int(os.getenv("REMOTE_IMPORT_TIMEOUT_SEC", "120")),
-                "chatgpt_file_max_redirects": max(1, min(_env_int("CHATGPT_FILE_MAX_REDIRECTS", 5), 10)),
-                "chatgpt_file_timeout_sec": max(1, min(_env_int("CHATGPT_FILE_TIMEOUT_SEC", 300), 1800)),
+                "chatgpt_file_max_redirects": max(
+                    1, min(_env_int("CHATGPT_FILE_MAX_REDIRECTS", 5), 10)
+                ),
+                "chatgpt_file_timeout_sec": max(
+                    1, min(_env_int("CHATGPT_FILE_TIMEOUT_SEC", 300), 1800)
+                ),
                 "blender_enabled": _env_bool("BLENDER_ENABLED", False),
                 "models_mount_present": bool(server_module.MODELS.exists()),
                 "custom_nodes_mount_present": bool(server_module.NODES.exists()),
+                "gpu_access_mode": "shared NVIDIA device; no host PID namespace or Docker socket",
+                "qwen_runtime_isolated": True,
+            },
+            "local_ai_policy": {
+                "large_artifacts_preloaded": False,
+                "profiles_required_over_100_mib": ["light", "optimal"],
+                "voice_clone_languages": ["it", "en"],
+                "voice_clone_consent_required": True,
+                "external_processes_mutable": False,
             },
             "routing_rule": (
-                "For a ChatGPT attachment use save_uploaded_file/save_uploaded_files: the client "
-                "binds openai/fileParams and Video Gen streams the temporary authorized HTTPS "
-                "download directly into its cache. For other retrievable HTTPS sources use "
-                "import_remote_file. Binary base64/chunk upload tools are intentionally absent. "
-                "Then reuse the canonical file_id and stage cached media into ComfyUI with "
-                "comfy_upload_cached_media(file_id)."
+                "For a ChatGPT attachment use save_uploaded_file/save_uploaded_files. For other "
+                "retrievable HTTPS sources use import_remote_file. Binary base64/chunk upload tools "
+                "are intentionally absent. Reuse canonical file_id values. Large optional AI models "
+                "are installed only after recommendation and explicit confirmation; cache is never "
+                "deleted automatically to make room."
             ),
         }

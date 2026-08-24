@@ -158,12 +158,23 @@ def register(mcp: Any, c: MediaContext) -> None:
             str(c.data_root / "tooling/whisper.cpp/current/build/bin/whisper-cli"),
         )
     ).resolve()
-    whisper_model = Path(
+    configured_whisper_model = Path(
         os.getenv(
             "WHISPER_MODEL_PATH",
             str(c.data_root / "models/whisper/ggml-tiny-q5_1.bin"),
         )
     ).resolve()
+    selected_whisper_model = c.data_root / "models" / "whisper" / "selected.bin"
+
+    def current_whisper_model() -> Path:
+        try:
+            if selected_whisper_model.exists() or selected_whisper_model.is_symlink():
+                candidate = selected_whisper_model.resolve()
+                if candidate.is_file():
+                    return candidate
+        except OSError:
+            pass
+        return configured_whisper_model
 
     @mcp.tool()
     async def transcribe_words(
@@ -179,6 +190,7 @@ def register(mcp: Any, c: MediaContext) -> None:
         grouped on whitespace boundaries when available; no-space scripts fall
         back to one timestamped token per returned unit.
         """
+        whisper_model = current_whisper_model()
         if not whisper_binary.is_file() or not whisper_model.is_file():
             raise RuntimeError("whisper.cpp binary/model is not prepared")
 

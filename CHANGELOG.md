@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.1.0] - 2026-08-24
+
+### Added
+
+- Optional on-demand Qwen3-TTS voice cloning with isolated child-worker runtime, persistent Italian/English voice profiles, and `light` 0.6B / `optimal` 1.7B model choices.
+- Shared model registry with `model_catalog`, `model_recommend`, `model_install`, `model_select`, `model_remove`, and explicit full-integrity `model_verify` operations.
+- Enforced large-artifact policy: optional registered artifacts above 100 MiB require at least non-preloaded `light` and `optimal` profiles and are never downloaded during normal startup.
+- Selectable Whisper upgrades: `small-q5_1` light and `large-v3-turbo-q5_0` optimal, while retaining the existing tiny bootstrap fallback.
+- Piper voice catalog/install/remove helpers for curated Italian and English voices while preserving the existing Piper import/TTS tools.
+- Openverse music search/import with conservative commercial-use filtering, duration filtering, bounded downloads, and persisted creator/license/attribution/source metadata.
+- `storage_info()` and `runtime_resources()` for `/data` disk usage, container-vs-host RAM accounting, NVIDIA GPU telemetry, and Video Gen-owned vs external/unattributed VRAM estimates.
+- `release_runtime_resources()` for unloading Qwen RAM/VRAM, with an aggressive mode that can terminate only the exact Qwen child process created and registered by Video Gen without stopping the MCP container.
+- Preview-first `cache_reclaim_preview()` and explicitly confirmed `cache_reclaim_files()` operations; pinned cache entries are never selected for reclamation.
+- Read-only `/system` WebGUI diagnostics for storage, RAM, GPU/VRAM, model state, and Qwen worker state.
+
+### Changed
+
+- `video-mcp.yml` now exposes one shared NVIDIA GPU to `video-mcp` using Compose GPU reservations; the GPU remains available to other containers and no host PID namespace, Docker socket, privileged mode, or exclusive GPU ownership is introduced.
+- Qwen3-TTS dependencies live in a persistent isolated environment under `/data/tooling/qwen3-tts` instead of the primary MCP virtual environment.
+- `build_status`, advanced capability reporting, server guidance, and startup preparation now expose the v3.1 local-AI/resource-management contract while preserving the canonical `file_id` routing model.
+- Whisper bootstrap download and runtime model selection are separated so an optional selected model persists across container restart without being validated against the tiny fallback checksum.
+
+### Fixed
+
+- Corrected Openverse duration handling: API durations are interpreted in milliseconds and exact user-provided second bounds are filtered locally rather than using an invalid range for Openverse's categorical `length` parameter.
+- Hardened Openverse imports so remote result identifiers cannot become filesystem paths and manifestly non-audio downloads are rejected.
+- Pinned Qwen model snapshots to full commit revisions and added verification of important model/tokenizer weight artifacts.
+- Prevented routine model status/recommendation calls from hashing multi-gigabyte Qwen weights; full SHA-256 verification is now explicit through `model_verify`.
+- Prevented Qwen worker stderr pipe saturation and added bounded request timeouts/interrupt handling so an aggressive resource release can recover a stuck Video Gen-owned inference worker.
+- Corrected VRAM attribution for Docker-visible GPUs whose physical NVIDIA index is not zero by preferring GPU UUID matching and using a conservative single-visible-device fallback.
+- Restored the existing `build_status` transfer-contract statement that model-mediated binary Base64/chunk upload tools are intentionally absent.
+
+### Security
+
+- Voice clone creation requires `consent_confirmed=true` and stores provenance-oriented reference metadata locally.
+- Resource release never uses `killall`, broad `pkill`, arbitrary telemetry-discovered PIDs, Docker container-management APIs, or GPU reset; external ComfyUI/Blender/VM processes are never mutation targets.
+- Cache/model/voice destructive operations remain explicit and approval-gated; Video Gen never deletes cache automatically to make room for a model.
+
 ## [3.0.1] - 2026-08-19
 
 ### Fixed

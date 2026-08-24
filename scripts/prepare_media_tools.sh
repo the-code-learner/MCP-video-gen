@@ -57,9 +57,6 @@ if is_true "${SILERO_VAD_ENABLED:-true}"; then
   SILERO_SHA="${SILERO_VAD_MODEL_SHA256:-$SILERO_DEFAULT_SHA}"
   SILERO_PATH="${SILERO_VAD_MODEL_PATH:-$DATA_ROOT/models/silero-vad/silero_vad.onnx}"
 
-  # v2.4.2 shipped an incorrect default SHA in the Portainer YAML. Preserve
-  # compatibility with already-deployed stacks while keeping checksum
-  # verification strict for custom URLs and custom pins.
   if [ "$SILERO_URL" = "$SILERO_DEFAULT_URL" ] && [ "$SILERO_SHA" = "$SILERO_LEGACY_BAD_SHA" ]; then
     echo "Replacing legacy incorrect Silero VAD v6.2.1 checksum pin." >&2
     SILERO_SHA="$SILERO_DEFAULT_SHA"
@@ -139,8 +136,21 @@ if is_true "${WHISPER_CPP_ENABLED:-true}"; then
     MODEL_NAME="${WHISPER_MODEL_NAME:-tiny-q5_1}"
     MODEL_URL="${WHISPER_MODEL_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin}"
     MODEL_SHA="${WHISPER_MODEL_SHA256:-818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7}"
-    MODEL_PATH="${WHISPER_MODEL_PATH:-$DATA_ROOT/models/whisper/ggml-$MODEL_NAME.bin}"
-    download_verified "$MODEL_URL" "$MODEL_SHA" "$MODEL_PATH"
+
+    # The bootstrap/fallback model has its own stable file. WHISPER_MODEL_PATH is
+    # the runtime selection path and may point at an optional model chosen by the
+    # user. Never checksum the selected model against the bootstrap model's hash.
+    BOOTSTRAP_MODEL_PATH="${WHISPER_BOOTSTRAP_MODEL_PATH:-$DATA_ROOT/models/whisper/ggml-$MODEL_NAME.bin}"
+    SELECTED_MODEL_PATH="${WHISPER_MODEL_PATH:-$BOOTSTRAP_MODEL_PATH}"
+    download_verified "$MODEL_URL" "$MODEL_SHA" "$BOOTSTRAP_MODEL_PATH"
+
+    if [ "$SELECTED_MODEL_PATH" != "$BOOTSTRAP_MODEL_PATH" ]; then
+      mkdir -p "$(dirname "$SELECTED_MODEL_PATH")"
+      if [ ! -e "$SELECTED_MODEL_PATH" ]; then
+        rm -f "$SELECTED_MODEL_PATH"
+        ln -s "$BOOTSTRAP_MODEL_PATH" "$SELECTED_MODEL_PATH"
+      fi
+    fi
   fi
 fi
 
