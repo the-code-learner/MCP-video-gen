@@ -14,6 +14,17 @@ services:
     restart: unless-stopped
     init: true
 
+    # Shared GPU access for optional local AI workloads. This reservation exposes
+    # one NVIDIA GPU to Video Gen but does not make it exclusive: ComfyUI, Blender
+    # or other containers may continue to use the same device independently.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
     environment:
       # Versioned public-source bootstrap.
       VIDEO_MCP_REPO: "the-code-learner/MCP-video-gen"
@@ -21,6 +32,10 @@ services:
       VIDEO_MCP_CHECK_UPDATES_ON_START: "${VIDEO_MCP_CHECK_UPDATES_ON_START:-true}"
       VIDEO_MCP_FORCE_REFRESH: "${VIDEO_MCP_FORCE_REFRESH:-false}"
       VIDEO_MCP_DATA_ROOT: "/data"
+
+      # NVIDIA compute plus NVML/nvidia-smi telemetry. No host PID namespace or
+      # Docker socket is exposed; Video Gen can only stop its own child workers.
+      NVIDIA_DRIVER_CAPABILITIES: "${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}"
 
       # Default backend endpoint; override privately when needed.
       COMFYUI_SCHEME: "http"
@@ -87,7 +102,9 @@ services:
       WHISPER_CPP_BINARY: "/data/tooling/whisper.cpp/current/build/bin/whisper-cli"
       WHISPER_MODEL_AUTO_DOWNLOAD: "${WHISPER_MODEL_AUTO_DOWNLOAD:-true}"
       WHISPER_MODEL_NAME: "${WHISPER_MODEL_NAME:-tiny-q5_1}"
-      WHISPER_MODEL_PATH: "/data/models/whisper/ggml-tiny-q5_1.bin"
+      # selected.bin initially contains tiny-q5_1 and becomes a symlink when the
+      # user explicitly selects an optional light/optimal Whisper model.
+      WHISPER_MODEL_PATH: "/data/models/whisper/selected.bin"
       WHISPER_MODEL_URL: "${WHISPER_MODEL_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin}"
       WHISPER_MODEL_SHA256: "${WHISPER_MODEL_SHA256:-818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7}"
 
@@ -340,7 +357,7 @@ services:
           }
 
           [ -f "$$STAGING/scripts/start.sh" ] || {
-            echo "scripts/start.sh missing" >&2
+            echo "scripts/start.sh missing from source" >&2
             rm -rf "$$STAGING"
             exit 1
           }

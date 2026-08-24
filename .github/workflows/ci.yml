@@ -31,7 +31,7 @@ jobs:
       - name: Compile Python
         run: |
           python -m compileall -q src
-          python -m py_compile scripts/blender_bridge.py
+          python -m py_compile scripts/blender_bridge.py scripts/qwen_worker.py
 
       - name: Import MCP server and full entrypoint
         env:

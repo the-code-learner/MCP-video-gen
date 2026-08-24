@@ -6,15 +6,16 @@ from typing import Any
 
 SERVER_DESCRIPTION = (
     "MCP Video Gen is a media-generation, media-processing and media-routing MCP server. "
-    "Use it for image/video/audio generation or editing, ComfyUI workflows and installed "
-    "custom nodes/models, FFmpeg processing, HyperFrames overlays, Blender/3D operations, "
-    "transcription, subtitles, media analysis, and moving media through the persistent cache. "
-    "The connected ComfyUI installation can expose additional dynamic capabilities through "
-    "custom nodes, including third-party services that may require their own credentials."
+    "Use it for image/video/audio generation or editing, local TTS and voice cloning, "
+    "ComfyUI workflows and installed custom nodes/models, FFmpeg processing, HyperFrames "
+    "overlays, Blender/3D operations, transcription, subtitles, royalty-free music search, "
+    "resource/model management, and moving media through the persistent cache. The connected "
+    "ComfyUI installation can expose additional dynamic capabilities through custom nodes, "
+    "including third-party services that may require their own credentials."
 )
 
 SERVER_INSTRUCTIONS = """
-You have access to MCP Video Gen. When a user request involves images, video, audio, media generation/editing/analysis, ComfyUI, FFmpeg, HyperFrames, Blender/3D, transcription or subtitles, consider this server before assuming the required capability is unavailable.
+You have access to MCP Video Gen. When a user request involves images, video, audio, media generation/editing/analysis, local TTS/voice cloning, music, ComfyUI, FFmpeg, HyperFrames, Blender/3D, transcription or subtitles, consider this server before assuming the required capability is unavailable.
 
 MCP Video Gen is an execution and media-routing server. Follow these rules when using it:
 
@@ -32,15 +33,27 @@ MCP Video Gen is an execution and media-routing server. Follow these rules when 
 
 7. ComfyUI output should be normalized into the Video Gen cache with `cache_output`. Return cached files to the client with `get_cached_file_resource`. Pass cached files to Blender and HyperFrames using their documented `file_id` adapters rather than temporary public URLs. `read_cached_file_chunk_base64` is outbound compatibility/debug only, not an upload mechanism.
 
-8. Do not invent integrations or capabilities, but do not assume an external integration is absent merely because Video Gen has no dedicated MCP tool for it. ComfyUI custom nodes can expose third-party services and may require their own API keys or credentials. When uncertain, inspect `list_loaded_nodes`, `get_node_definition`, `inventory_summary`, `external_backends_status`, `advanced_capabilities`, and `build_status` before deciding whether a capability is available or configured.
+8. Do not invent integrations or capabilities, but do not assume an external integration is absent merely because Video Gen has no dedicated MCP tool for it. ComfyUI custom nodes can expose third-party services and may require their own API keys or credentials. When uncertain, inspect `list_loaded_nodes`, `get_node_definition`, `inventory_summary`, `external_backends_status`, `advanced_capabilities`, `local_ai_status`, and `build_status` before deciding whether a capability is available or configured.
 
 9. Cache files are persistent by default. Automatic cache deletion is disabled unless the deployment explicitly enables a retention policy. Use `cache_status` to inspect the active policy, `cache_pin` to protect important artifacts, `cache_unpin` to remove protection, and `cache_cleanup(dry_run=true)` before destructive manual cleanup. Pinned files must never be removed by retention cleanup.
 
-10. The WebGUI at `/` can be used to inspect/upload/download/delete/pin cached files and inspect/export the sanitized persistent activity log. Browser upload is a manual recovery/admin path; native ChatGPT attachment upload is the preferred autonomous path for ChatGPT clients.
+10. Large optional local-AI artifacts are not preloaded. If an artifact family exceeds 100 MiB, use `model_catalog` / `model_recommend` and offer at least the light and optimal profiles. Before a large install, inspect current disk, RAM and VRAM. Treat RAM/VRAM recommendations as point-in-time guidance because external workloads may change concurrently.
 
-11. Temporary authorized file-download URLs are bearer-like capabilities. Never expose their query strings, signatures, or full URLs in user-visible output, logs, memory, or generated workflows. The server validates HTTPS/public addressing and suppresses generic httpx/httpcore INFO request logging for these transfers.
+11. Never delete Video Gen cache files merely to make an installation fit. If disk space is insufficient, use `cache_reclaim_preview` to show exactly which unpinned cache files could be reclaimed, explain the tradeoff, obtain explicit user approval, and only then call `cache_reclaim_files(..., confirm=true)` with the approved file IDs. Do not infer approval from the earlier request to install a model. Pinned files remain protected.
 
-12. If file routing is ambiguous, call `file_transfer_guide()` before moving bytes or building a ComfyUI workflow.
+12. `runtime_resources` separates cgroup-accounted Video Gen RAM from an estimated remainder on the VM. GPU memory reserved by the registered Qwen worker is attributable to Video Gen; the remaining GPU usage is `external_or_unattributed` because host PID namespace and Docker socket are deliberately not exposed. Never claim that residual VRAM belongs to a particular external tool unless independently proven.
+
+13. `release_runtime_resources` may unload Qwen and clear CUDA caches. Aggressive mode may stop only child workers explicitly created and registered by this Video Gen process. Never kill arbitrary PIDs found through `nvidia-smi`, never use `pkill`/`killall`/GPU reset, never terminate the MCP main process/container, and never attempt to stop ComfyUI, Blender, other containers, or host processes.
+
+14. Voice cloning must be used only with an authorized reference voice. `qwen_voice_clone_create` requires `consent_confirmed=true`; do not set that flag unless the user has explicitly indicated they have authorization to clone that voice. Persistent voice profiles are local under `/data` and should not be exposed outside the requested workflow.
+
+15. Openverse music search returns license metadata from aggregated sources. Preserve title, creator, source, attribution, landing page and license metadata when importing audio, and remind the user to verify the source landing page/license before publication when licensing matters.
+
+16. The WebGUI at `/` can be used to inspect/upload/download/delete/pin cached files and inspect/export the sanitized persistent activity log. Browser upload is a manual recovery/admin path; native ChatGPT attachment upload is the preferred autonomous path for ChatGPT clients.
+
+17. Temporary authorized file-download URLs are bearer-like capabilities. Never expose their query strings, signatures, or full URLs in user-visible output, logs, memory, or generated workflows. The server validates HTTPS/public addressing and suppresses generic httpx/httpcore INFO request logging for these transfers.
+
+18. If file routing is ambiguous, call `file_transfer_guide()` before moving bytes or building a ComfyUI workflow.
 """.strip()
 
 
