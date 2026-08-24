@@ -13,6 +13,7 @@ from .download_utils import download_verified
 
 OPENVERSE_AUDIO_ENDPOINT = "https://api.openverse.org/v1/audio/"
 COMMERCIAL_LICENSES = {"cc0", "pdm", "by"}
+OPENVERSE_ANONYMOUS_MAX_PAGE_SIZE = 20
 
 
 class OpenverseSession:
@@ -86,8 +87,10 @@ async def search_music(
 
     # Openverse's `length` search parameter is categorical (shortest/short/
     # medium/long), while the response `duration` is an integer in milliseconds.
-    # Exact user-provided second bounds are therefore applied locally.
-    page_size = 50 if (duration_min_sec or duration_max_sec) else max(20, limit)
+    # Exact user-provided second bounds are therefore applied locally. Anonymous
+    # Openverse API requests are kept at the public 20-result page-size ceiling;
+    # duration searches inspect additional pages instead of requesting larger pages.
+    page_size = OPENVERSE_ANONYMOUS_MAX_PAGE_SIZE
     max_pages = 4 if (duration_min_sec or duration_max_sec) else 2
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
