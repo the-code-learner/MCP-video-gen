@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .advanced_common import MediaContext, safe_name
-from .piper_runtime import piper_runtime_status, require_piper_enabled
+from .piper_runtime import piper_runtime_status, require_piper_enabled, set_piper_enabled
 
 
 def floats(text:str)->list[float]:
@@ -146,6 +146,11 @@ def register(mcp:Any,c:MediaContext)->None:
         runtime=piper_runtime_status()
         runtime.update({"voices_root":str(voices),"voices":[str(p.relative_to(voices)) for p in sorted(voices.rglob("*.onnx"))[:500]] if voices.is_dir() else []})
         return runtime
+
+    @mcp.tool()
+    async def piper_runtime_set_enabled(enabled:bool,confirm:bool=False)->dict[str,Any]:
+        """Persistently enable or disable Piper only after confirm=true. The choice applies immediately and survives restarts without changing deployment YAML."""
+        return set_piper_enabled(enabled,confirm=confirm)
 
     @mcp.tool()
     async def piper_import_voice_file(file_id:str,destination:str)->dict[str,Any]:
