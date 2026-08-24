@@ -366,7 +366,7 @@ The project uses Semantic Versioning. Stable application releases are tagged `vX
 - Dynamic ComfyUI workflow submission, queue/history inspection, output retrieval, upload, and interrupt controls.
 - Persistent media cache shared by ComfyUI output handling, HyperFrames, and FFmpeg operations.
 - Structured FFmpeg tools for probing, frame extraction, transcoding, concatenation, audio muxing, and video overlays.
-- Local HyperFrames rendering with persistent projects and browser cache, including controlled text-file authoring, media import, lint/check, render operations.
+- Local HyperFrames rendering with persistent projects and browser cache, including controlled text-file authoring, media import, lint/check, and render operations.
 - Optional Cloudflare Tunnel sidecar and Cloudflare Access JWT validation suitable for Managed OAuth deployments.
 - Persistent Python virtual environment rebuilt only when `requirements.txt` changes.
 - Single-YAML Portainer bootstrap with version pinning, stable-release `latest` resolution, update checks, force refresh, atomic staging, and last-known-good fallback.
