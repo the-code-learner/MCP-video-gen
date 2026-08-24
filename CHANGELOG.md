@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [3.1.1] - 2026-08-24
+
+### Fixed
+
+- Switched Openverse audio search to the canonical `https://api.openverse.org/v1/audio/` endpoint after the legacy `api.openverse.engineering` endpoint began returning HTTP 301 redirects.
+- Made Openverse search explicitly redirect-safe with `follow_redirects=True`, with a regression test that exercises an actual mocked 301 -> 200 request chain.
+- Hardened the immutable release workflow recovery path: when a stable tag exists but its GitHub Release is missing, the workflow now verifies that the tag points to the current release commit and creates only the missing Release without moving or rewriting the tag.
+
+### Changed
+
+- Release-state handling now distinguishes complete releases, new releases, recoverable tag-without-release states, and inconsistent states that require manual investigation.
+- No deployment YAML changes are included in v3.1.1.
+
 ## [3.1.0] - 2026-08-24
 
 ### Added
