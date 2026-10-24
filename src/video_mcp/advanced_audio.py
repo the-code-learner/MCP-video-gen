@@ -13,7 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from .advanced_common import MediaContext, safe_name
-from .piper_runtime import piper_runtime_status, require_piper_enabled, set_piper_enabled\nfrom .whistle_runtime import (\n    normalize_whistle_words,\n    prepare_whistle,\n    run_whistle_transcription,\n    whistle_status,\n    whistle_subtitle_text,\n)
+from .piper_runtime import piper_runtime_status, require_piper_enabled, set_piper_enabled
+from .whistle_runtime import (
+    normalize_whistle_words,
+    prepare_whistle,
+    run_whistle_transcription,
+    whistle_status,
+    whistle_subtitle_text,
+)
 
 
 def floats(text:str)->list[float]:
