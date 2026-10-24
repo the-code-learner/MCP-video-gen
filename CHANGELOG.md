@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
-## [Unreleased]
+## [3.1.4] - 2026-10-24
 
 ### Added
 
