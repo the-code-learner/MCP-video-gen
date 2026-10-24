@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from .advanced_common import MediaContext
 from . import advanced_audio, advanced_completion, advanced_editing, advanced_ffmpeg
+from .whistle_runtime import whistle_status
 
 _REGISTERED = False
 
@@ -49,6 +50,7 @@ def register_advanced_tools(
             "silero_vad_model": Path(os.getenv("SILERO_VAD_MODEL_PATH", str(data_root / "models/silero-vad/silero_vad.onnx"))).is_file(),
             "whisper_cpp": Path(os.getenv("WHISPER_CPP_BINARY", str(data_root / "tooling/whisper.cpp/current/build/bin/whisper-cli"))).is_file(),
             "whisper_model": Path(os.getenv("WHISPER_MODEL_PATH", str(data_root / "models/whisper/selected.bin"))).is_file(),
+            "whistle": whistle_status(data_root),
             "piper_enabled": os.getenv("PIPER_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "qwen3_tts_runtime": qwen_runtime.is_file(),
             "qwen3_tts_models": sorted(path.name for path in qwen_models.iterdir() if path.is_dir()) if qwen_models.is_dir() else [],
