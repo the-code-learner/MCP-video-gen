@@ -90,7 +90,10 @@ def test_whisper_optional_selection_is_runtime_owned_without_yaml_change() -> No
     completion_text = ADVANCED_COMPLETION.read_text(encoding="utf-8")
     assert 'selected_whisper_model = c.data_root / "models" / "whisper" / "selected.bin"' in completion_text
     assert "def current_whisper_model() -> Path:" in completion_text
-    assert "whisper_model = current_whisper_model()" in completion_text
+    # Whisper remains available as legacy selection/status, but generic word
+    # transcription is intentionally routed through Cactus Whistle.
+    assert "run_whistle_transcription(" in completion_text
+    assert '"whistle.words"' in completion_text
 
 
 def test_whisper_bootstrap_and_runtime_selection_are_separate_on_restart() -> None:
