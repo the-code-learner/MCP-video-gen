@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 The project uses Semantic Versioning. Stable application releases are tagged `vX.Y.Z`.
 
+## [Unreleased]
+
+### Added
+
+- Added Cactus Whistle speech-to-text via pinned `cactus-needle==3.2.8`, with a persistent `/data`-backed runtime cache, Italian support, native word timestamps and keyword biasing.
+- Added `whistle_info()` and `whistle_prepare()` for runtime/cache diagnostics and explicit model preparation.
+
+### Changed
+
+- Routed the generic `transcribe`, `transcribe_words` and `transcribe_to_subtitles` tools through Whistle instead of whisper.cpp. Legacy Whisper model/status support remains available for backward compatibility.
+
 ## [3.1.3] - 2026-08-24
 
 ### Added
