@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .advanced_common import MediaContext, safe_name
+from .whistle_runtime import normalize_whistle_words, run_whistle_transcription
 
 
 def _word_spans_from_whisper_json(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -183,22 +184,20 @@ def register(mcp: Any, c: MediaContext) -> None:
         translate_to_english: bool = False,
         word_threshold: float = 0.01,
         output_filename: str = "word-timestamps.json",
+        keywords: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Transcribe media and return word-like timestamp spans from whisper.cpp.
+        """Transcribe media with Cactus Whistle and return word timestamps.
 
-        whisper.cpp full JSON provides per-token millisecond offsets. Tokens are
-        grouped on whitespace boundaries when available; no-space scripts fall
-        back to one timestamped token per returned unit.
+        Whistle supplies native word start/end times and probabilities. The optional
+        keywords list biases decoding toward names, jargon or other expected terms.
         """
-        whisper_model = current_whisper_model()
-        if not whisper_binary.is_file() or not whisper_model.is_file():
-            raise RuntimeError("whisper.cpp binary/model is not prepared")
+        if translate_to_english:
+            raise ValueError("Whistle transcribes speech but does not translate to English")
 
         src = c.cached(file_id)
-        work = Path(tempfile.mkdtemp(prefix="whw-", dir=c.tmp))
+        work = Path(tempfile.mkdtemp(prefix="whistle-words-", dir=c.tmp))
         try:
             wav = work / "input.wav"
-            prefix = work / "words"
             await c.command(
                 [
                     "ffmpeg",
@@ -216,36 +215,27 @@ def register(mcp: Any, c: MediaContext) -> None:
                 ],
                 c.ffmpeg_timeout,
             )
-            args = [
-                str(whisper_binary),
-                "-m",
-                str(whisper_model),
-                "-f",
-                str(wav),
-                "-ojf",
-                "-sow",
-                "-wt",
-                str(max(0.0, min(1.0, word_threshold))),
-                "-of",
-                str(prefix),
-                "-np",
-            ]
-            if language != "auto":
-                args += ["-l", language]
-            if translate_to_english:
-                args += ["-tr"]
-            await c.command(args, c.ffmpeg_timeout)
-
-            json_path = Path(str(prefix) + ".json")
-            if not json_path.is_file():
-                raise RuntimeError("whisper.cpp did not produce full JSON")
-            raw = json.loads(json_path.read_text(encoding="utf-8"))
-            words = _word_spans_from_whisper_json(raw)
+            result = await run_whistle_transcription(
+                wav,
+                c.data_root,
+                language=language,
+                keywords=keywords,
+                word_timestamps=True,
+                timeout=c.ffmpeg_timeout,
+            )
+            words = normalize_whistle_words(
+                result,
+                probability_threshold=word_threshold,
+            )
             payload = {
                 "source_file_id": file_id,
-                "language": (raw.get("result") or {}).get("language", language),
-                "translate_to_english": translate_to_english,
+                "language": result.get("language", language),
+                "translate_to_english": False,
                 "word_threshold": word_threshold,
+                "keywords": keywords or [],
+                "text": result.get("text", ""),
+                "ttft_ms": result.get("ttft_ms"),
+                "decode_tps": result.get("decode_tps"),
                 "words": words,
             }
             oid, out = c.target(safe_name(output_filename, "word-timestamps.json"))
@@ -255,7 +245,7 @@ def register(mcp: Any, c: MediaContext) -> None:
                 "cached_json": c.file_meta(
                     oid,
                     out,
-                    "whisper.cpp.words",
+                    "whistle.words",
                     source_file_id=file_id,
                     word_count=len(words),
                 ),
