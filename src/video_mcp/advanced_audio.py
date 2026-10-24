@@ -14,6 +14,13 @@ from typing import Any
 
 from .advanced_common import MediaContext, safe_name
 from .piper_runtime import piper_runtime_status, require_piper_enabled, set_piper_enabled
+from .whistle_runtime import (
+    normalize_whistle_words,
+    prepare_whistle,
+    run_whistle_transcription,
+    whistle_status,
+    whistle_subtitle_text,
+)
 
 
 def floats(text:str)->list[float]:
@@ -118,26 +125,69 @@ def register(mcp:Any,c:MediaContext)->None:
     async def wav16(src:Path,dst:Path):await c.command(["ffmpeg","-y","-i",str(src),"-vn","-ar","16000","-ac","1","-c:a","pcm_s16le",str(dst)],c.ffmpeg_timeout)
 
     @mcp.tool()
-    async def transcribe(file_id:str,language:str="auto",translate_to_english:bool=False)->dict[str,Any]:
-        wm=whisper_model()
-        if not wb.is_file() or not wm.is_file():raise RuntimeError("whisper.cpp binary/model is not prepared")
-        src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="wh-",dir=c.tmp))
+    async def whistle_info()->dict[str,Any]:
+        """Report Cactus Whistle runtime/cache status."""
+        return whistle_status(c.data_root)
+
+    @mcp.tool()
+    async def whistle_prepare()->dict[str,Any]:
+        """Fetch/load Whistle into the persistent /data-backed runtime cache."""
+        return await prepare_whistle(c.data_root,c.ffmpeg_timeout)
+
+    @mcp.tool()
+    async def transcribe(
+        file_id:str,
+        language:str="auto",
+        translate_to_english:bool=False,
+        keywords:list[str]|None=None,
+    )->dict[str,Any]:
+        """Transcribe cached media locally with Cactus Whistle."""
+        if translate_to_english:
+            raise ValueError("Whistle transcribes speech but does not translate to English")
+        src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="whistle-",dir=c.tmp))
         try:
-            wav,prefix=w/"in.wav",w/"transcript";await wav16(src,wav);a=[str(wb),"-m",str(wm),"-f",str(wav),"-ojf","-of",str(prefix),"-np"]+(["-l",language] if language!="auto" else [])+(["-tr"] if translate_to_english else []);await c.command(a,c.ffmpeg_timeout);jp=Path(str(prefix)+".json")
-            if not jp.is_file():raise RuntimeError("whisper.cpp did not produce JSON")
-            data=json.loads(jp.read_text());oid,out=c.target("transcript.json");shutil.copy2(jp,out);return {"transcript":data,"cached_json":c.file_meta(oid,out,"whisper.cpp.transcript",source_file_id=file_id,language=language,translate=translate_to_english)}
+            wav=w/"in.wav";await wav16(src,wav)
+            data=await run_whistle_transcription(
+                wav,c.data_root,language=language,keywords=keywords,
+                word_timestamps=False,timeout=c.ffmpeg_timeout,
+            )
+            oid,out=c.target("transcript.json")
+            out.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
+            return {
+                "transcript":data,
+                "cached_json":c.file_meta(
+                    oid,out,"whistle.transcript",source_file_id=file_id,
+                    language=data.get("language",language),keywords=keywords or [],
+                ),
+            }
         finally:shutil.rmtree(w,ignore_errors=True)
 
     @mcp.tool()
-    async def transcribe_to_subtitles(file_id:str,language:str="auto",output_format:str="srt",output_filename:str="transcript.srt")->dict[str,Any]:
+    async def transcribe_to_subtitles(
+        file_id:str,
+        language:str="auto",
+        output_format:str="srt",
+        output_filename:str="transcript.srt",
+        keywords:list[str]|None=None,
+    )->dict[str,Any]:
+        """Transcribe cached media with Whistle and create SRT/VTT from word timestamps."""
         if output_format not in {"srt","vtt"}:raise ValueError("output_format must be srt or vtt")
-        wm=whisper_model()
-        if not wb.is_file() or not wm.is_file():raise RuntimeError("whisper.cpp binary/model is not prepared")
-        src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="whs-",dir=c.tmp))
+        src=c.cached(file_id);w=Path(tempfile.mkdtemp(prefix="whistle-sub-",dir=c.tmp))
         try:
-            wav,prefix=w/"in.wav",w/"transcript";await wav16(src,wav);a=[str(wb),"-m",str(wm),"-f",str(wav),"-osrt" if output_format=="srt" else "-ovtt","-of",str(prefix),"-np"]+(["-l",language] if language!="auto" else []);await c.command(a,c.ffmpeg_timeout);p=Path(str(prefix)+"."+output_format)
-            if not p.is_file():raise RuntimeError("whisper.cpp did not produce subtitles")
-            oid,out=c.target(safe_name(output_filename,p.name));shutil.copy2(p,out);return c.file_meta(oid,out,"whisper.cpp.subtitles",source_file_id=file_id,language=language,format=output_format)
+            wav=w/"in.wav";await wav16(src,wav)
+            data=await run_whistle_transcription(
+                wav,c.data_root,language=language,keywords=keywords,
+                word_timestamps=True,timeout=c.ffmpeg_timeout,
+            )
+            words=normalize_whistle_words(data)
+            text=whistle_subtitle_text(words,output_format)
+            oid,out=c.target(safe_name(output_filename,f"transcript.{output_format}"))
+            out.write_text(text,encoding="utf-8")
+            return c.file_meta(
+                oid,out,"whistle.subtitles",source_file_id=file_id,
+                language=data.get("language",language),format=output_format,
+                word_count=len(words),keywords=keywords or [],
+            )
         finally:shutil.rmtree(w,ignore_errors=True)
 
     voices=Path(os.getenv("PIPER_VOICES_ROOT",str(c.data_root/"piper/voices"))).resolve()
