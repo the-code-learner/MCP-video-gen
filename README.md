@@ -28,7 +28,7 @@ The project is designed for **Portainer-only deployments**: the public repositor
 - Detect beats, tempo, onsets, and pitch with aubio.
 - Denoise speech locally with RNNoise.
 - Detect speech segments with a small Silero VAD ONNX model.
-- Transcribe media, generate subtitles, and obtain word-like timestamps locally with whisper.cpp.
+- Transcribe media, generate subtitles, and obtain native word timestamps locally with Cactus Whistle, including optional keyword biasing.
 - Optionally synthesize speech with user-supplied Piper voices; Piper is disabled by default.
 - Optionally validate Cloudflare Access JWTs at the origin and run a Cloudflare Tunnel sidecar.
 
@@ -62,7 +62,7 @@ MCP Video Gen + persistent file_id cache
    |---------------- HyperFrames
    |---------------- OpenTimelineIO / subtitles
    |---------------- scene / frame analysis
-   |---------------- whisper.cpp / Silero VAD / RNNoise / aubio
+   |---------------- Cactus Whistle / Silero VAD / RNNoise / aubio
    +---------------- FFmpeg
 
 All execution paths exchange files through the same MCP cache.
